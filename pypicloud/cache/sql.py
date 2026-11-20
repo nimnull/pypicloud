@@ -13,8 +13,10 @@ from sqlalchemy import (
     String,
     Text,
     and_,
+    delete,
     engine_from_config,
     or_,
+    select,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.mutable import Mutable
@@ -197,20 +199,18 @@ class SQLCache(ICache):
 
     @override
     def fetch(self, filename):
-        return self.db.query(SQLPackage).filter_by(filename=filename).first()
+        return self.db.scalars(select(SQLPackage).filter_by(filename=filename)).first()
 
     @override
     def all(self, name):
-        pkgs = self.db.query(SQLPackage).filter_by(name=name).all()
+        pkgs = list(self.db.scalars(select(SQLPackage).filter_by(name=name)))
         pkgs.sort(reverse=True)
         return pkgs
 
     @override
     def distinct(self):
-        names = (
-            self.db.query(SQLPackage.name).distinct().order_by(SQLPackage.name).all()
-        )
-        return [n[0] for n in names]
+        names = select(SQLPackage.name).distinct().order_by(SQLPackage.name)
+        return list(self.db.scalars(names))
 
     @override
     def search(self, criteria, query_type):
@@ -255,11 +255,11 @@ class SQLCache(ICache):
 
         # Piece together the queries. Refer to the method docstring for
         # examples as to how this works.
-        results = self.db.query(SQLPackage).filter(or_(*conditions))
+        results = self.db.scalars(select(SQLPackage).where(or_(*conditions)))
 
         # Extract only the most recent version for each package
         latest_map = {}
-        for package in results.all():
+        for package in results:
             if package.name not in latest_map or package > latest_map[package.name]:
                 latest_map[package.name] = package
 
@@ -268,29 +268,33 @@ class SQLCache(ICache):
     @override
     def summary(self):
         subquery = (
-            self.db.query(
+            select(
                 SQLPackage.name,
                 func.max(SQLPackage.last_modified).label("last_modified"),
             )
             .group_by(SQLPackage.name)
             .subquery()
         )
-        rows = self.db.query(
-            SQLPackage.name, SQLPackage.last_modified, SQLPackage.summary
-        ).filter(
-            (SQLPackage.name == subquery.c.name)
-            & (SQLPackage.last_modified == subquery.c.last_modified)
+        rows = self.db.execute(
+            select(SQLPackage.name, SQLPackage.last_modified, SQLPackage.summary).where(
+                (SQLPackage.name == subquery.c.name)
+                & (SQLPackage.last_modified == subquery.c.last_modified)
+            )
         )
 
         # Dedupe because two packages may share the same last_modified
         seen_packages = set()
         packages = []
         for row in rows:
-            if row[0] in seen_packages:
+            if row.name in seen_packages:
                 continue
-            seen_packages.add(row[0])
+            seen_packages.add(row.name)
             packages.append(
-                {"name": row[0], "last_modified": row[1], "summary": row[2]}
+                {
+                    "name": row.name,
+                    "last_modified": row.last_modified,
+                    "summary": row.summary,
+                }
             )
         return packages
 
@@ -324,7 +328,7 @@ class SQLCache(ICache):
         # Fetch packages from storage s1
         s1 = set(self.storage.list(SQLPackage))
         # Fetch cache packages c1
-        c1 = set(self.db.query(SQLPackage).all())
+        c1 = set(self.db.scalars(select(SQLPackage)))
         # Add missing packages to cache (s1 - c1)
         missing = s1 - c1
         if missing:
@@ -337,10 +341,7 @@ class SQLCache(ICache):
         extra1 = [p for p in (c1 - s1) if p.last_modified <= start]
         if extra1:
             LOG.info("Removing %d extra packages from cache", len(extra1))
-            for pkg in extra1:
-                self.db.query(SQLPackage).filter(
-                    SQLPackage.filename == pkg.filename
-                ).delete(synchronize_session=False)
+            self._delete_packages(extra1)
 
         # If any packages were concurrently deleted during the cache rebuild,
         # we can detect them by polling storage again and looking for any
@@ -354,15 +355,20 @@ class SQLCache(ICache):
                 "deleted during rebuild",
                 len(extra2),
             )
-            for pkg in extra2:
-                self.db.query(SQLPackage).filter(
-                    SQLPackage.filename == pkg.filename
-                ).delete(synchronize_session=False)
+            self._delete_packages(extra2)
+
+    def _delete_packages(self, packages):
+        """Remove packages from the cache by filename"""
+        filenames = [package.filename for package in packages]
+        self.db.execute(
+            delete(SQLPackage).where(SQLPackage.filename.in_(filenames)),
+            execution_options={"synchronize_session": False},
+        )
 
     @override
     def check_health(self):
         try:
-            self.db.query(SQLPackage).first()
+            self.db.scalars(select(SQLPackage).limit(1)).first()
         except SQLAlchemyError as e:
             return (False, str(e))
         else:

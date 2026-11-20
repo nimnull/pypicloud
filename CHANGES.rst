@@ -23,8 +23,11 @@ Unreleased
   and written as before
 * Drop ``pkg_resources``: versions parse with ``packaging`` and the config
   template loads with ``importlib.resources``
+* Require SQLAlchemy 2.1, and declare it: the SQL cache and access backends
+  import it directly instead of relying on ``zope.sqlalchemy`` to pull it in
 * Define the SQL models with the SQLAlchemy 2.0 declarative API
-  (``DeclarativeBase``, ``Mapped``, ``mapped_column``)
+  (``DeclarativeBase``, ``Mapped``, ``mapped_column``, ``back_populates``) and
+  read them through ``select()`` instead of the legacy ``Query`` API
 * Run the test suite with pytest, and lint with ruff. ``nose``, ``mock``,
   ``black``, ``isort``, ``pylint`` and ``sqlalchemy-stubs`` are no longer
   development dependencies

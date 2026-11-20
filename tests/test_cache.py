@@ -439,7 +439,7 @@ class TestSQLiteCache(unittest.TestCase):
             """Throw an exception"""
             raise SQLAlchemyError("DB exception")
 
-        dbmock.query.side_effect = throw
+        dbmock.scalars.side_effect = throw
         ok, msg = self.db.check_health()
         self.assertFalse(ok)
 

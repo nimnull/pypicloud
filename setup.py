@@ -28,6 +28,7 @@ REQUIREMENTS = [
     "pyramid_rpc",
     "pyramid_tm",
     "requests",
+    "sqlalchemy>=2.1",
     "transaction",
     "zope.sqlalchemy",
 ]
