@@ -54,6 +54,17 @@ Dependencies
 * Require ``psycopg`` (version 3) instead of ``psycopg2`` for Postgres, following
   SQLAlchemy 2.1's default driver for ``postgresql://``
 
+Deployment
+~~~~~~~~~~
+* Ship a production ``Dockerfile``: uWSGI 2.0.31 built against CPython 3.14,
+  running as an unprivileged user, reading ``/etc/pypicloud/config.ini`` and
+  listening on port 8080
+* ``ppc-create-s3-sync`` and ``ppc-build-lambda-bundle`` are unsupported. They
+  build a Lambda bundle around virtualenv 15.1.0 from 2017, no test covers them,
+  and both now say so when they run
+* An unrecognised ``auth.scheme`` logs a warning naming the scheme it hashes
+  with instead of changing algorithm silently
+
 Internals
 ~~~~~~~~~
 * Define the SQL models with the SQLAlchemy 2.0 declarative API

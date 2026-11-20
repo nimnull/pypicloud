@@ -25,6 +25,13 @@ def get_pwd_context(scheme: str | None = None, rounds: int | None = None):
     either scheme. Hashes from pypicloud 1.x do not verify; those users need a new
     password.
     """
+    if scheme is not None and scheme not in SCHEMES:
+        LOG.warning(
+            "Unknown auth.scheme %r, hashing with %s. Supported schemes: %s",
+            scheme,
+            DEFAULT_SCHEME,
+            ", ".join(SCHEMES),
+        )
     if scheme == "bcrypt":
         bcrypt = BcryptHasher(rounds=rounds) if rounds else BcryptHasher()
         return PasswordHash((bcrypt, Argon2Hasher()))

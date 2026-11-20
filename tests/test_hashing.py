@@ -39,6 +39,19 @@ class TestHashing(unittest.TestCase):
         context = get_pwd_context("sha512_crypt")
         self.assertTrue(context.hash("secret").startswith("$argon2id$"))
 
+    def test_unknown_scheme_warns(self):
+        """A scheme this version doesn't know is named in the log"""
+        with self.assertLogs("pypicloud.hashing", level="WARNING") as logs:
+            get_pwd_context("sha512_crypt")
+        self.assertIn("sha512_crypt", logs.output[0])
+
+    def test_known_scheme_is_quiet(self):
+        """A supported scheme logs nothing"""
+        with self.assertNoLogs("pypicloud.hashing", level="WARNING"):
+            get_pwd_context("bcrypt")
+            get_pwd_context("argon2")
+            get_pwd_context()
+
     def test_verifies_both_schemes(self):
         """Either scheme verifies a hash written by the other"""
         argon2, bcrypt = get_pwd_context(), get_pwd_context("bcrypt")

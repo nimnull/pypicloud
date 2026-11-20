@@ -5,6 +5,13 @@
 Using S3 Notifications to sync caches
 =====================================
 
+.. warning::
+
+    Unsupported. ``ppc-create-s3-sync`` and ``ppc-build-lambda-bundle`` build a
+    Lambda bundle around virtualenv 15.1.0, released in 2017, and no test covers
+    them. They are kept for reference until someone rebuilds them against a
+    current Lambda runtime.
+
 **What is this for?**
 
 Let's say you have servers in multiple regions. You may want to have pypicloud

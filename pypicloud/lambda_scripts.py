@@ -17,6 +17,8 @@ from pyramid.paster import get_appsettings
 from pypicloud import __version__, _lambda_handler
 from pypicloud.storage.s3 import S3Storage
 
+LOG = logging.getLogger(__name__)
+
 HANDLER_FILENAME = "lambda_script.py"
 
 VENV_VERSION = "15.1.0"
@@ -180,6 +182,7 @@ def make_virtualenv(env):
 
 def build_lambda_bundle(argv=None):
     """Build the zip bundle that will be deployed to AWS Lambda"""
+    _warn_unsupported()
     if argv is None:
         argv = sys.argv[1:]
     parser = argparse.ArgumentParser(description=build_lambda_bundle.__doc__)
@@ -242,12 +245,22 @@ def _build_lambda_bundle(settings):
         shutil.rmtree(venv_dir)
 
 
+def _warn_unsupported() -> None:
+    """Log that these scripts are unsupported and untested"""
+    LOG.warning(
+        "The Lambda sync scripts are unsupported: they build a bundle around "
+        "virtualenv %s from 2017 and no test covers them.",
+        VENV_VERSION,
+    )
+
+
 def create_sync_scripts(argv=None):
     """
     Set bucket notifications and create AWS Lambda functions that will sync
     changes in the S3 bucket to the cache
 
     """
+    _warn_unsupported()
     if argv is None:
         argv = sys.argv[1:]
     parser = argparse.ArgumentParser(description=create_sync_scripts.__doc__)
