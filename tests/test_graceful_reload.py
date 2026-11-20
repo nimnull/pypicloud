@@ -11,7 +11,13 @@ from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError
 
 from pypicloud.cache import RedisCache, SQLCache
-from pypicloud.cache.dynamo import DynamoCache, DynamoPackage, PackageSummary
+from pypicloud.cache.dynamo import (
+    BATCH_GET_SIZE,
+    DynamoCache,
+    DynamoPackage,
+    PackageSummary,
+    _iter_items,
+)
 from pypicloud.cache.sql import SQLPackage
 from pypicloud.storage import IStorage
 from pypicloud.util import EnvironSettings
@@ -68,6 +74,22 @@ class TestDynamoCache(unittest.TestCase):
         self.assertCountEqual(all_pkgs, keys)
         all_summaries = self.summaries.scan()["Items"]
         self.assertEqual(len(all_summaries), 1)
+
+    def test_add_missing_more_than_one_batch(self):
+        """Add missing packages when they span several write and read batches"""
+        # More names than one BatchGetItem request can carry, so the summary
+        # fetch has to chunk them
+        count = BATCH_GET_SIZE + 50
+        keys = [
+            make_package(
+                f"pkg{i}", filename=f"pkg{i}-1.1.tar.gz", factory=DynamoPackage
+            )
+            for i in range(count)
+        ]
+        self.storage.list.return_value = keys
+        self.db.reload_from_storage()
+        self.assertCountEqual(scan_packages(self.packages), keys)
+        self.assertEqual(len(list(_iter_items(self.summaries))), count)
 
     def test_remove_extra(self):
         """Remove extra packages from cache"""

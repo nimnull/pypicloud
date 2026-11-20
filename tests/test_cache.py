@@ -13,7 +13,13 @@ from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from pypicloud.cache import ICache, RedisCache, SQLCache
-from pypicloud.cache.dynamo import DynamoCache, DynamoPackage, PackageSummary
+from pypicloud.cache.dynamo import (
+    BATCH_GET_SIZE,
+    DynamoCache,
+    DynamoPackage,
+    PackageSummary,
+    _iter_items,
+)
 from pypicloud.cache.sql import SQLPackage
 from pypicloud.storage import IStorage
 from pypicloud.util import EnvironSettings
@@ -1011,6 +1017,60 @@ class TestDynamoCache(unittest.TestCase):
         saved_pkg = scan_packages(self.packages)[0]
         self.assertEqual(saved_pkg, pkg)
         self.storage.upload.assert_called_with(pkg, ANY)
+
+    def test_scan_pages(self):
+        """Scanning a table walks every page of results"""
+        pkgs = [
+            make_package(filename=f"mypkg-1.{i}.tar.gz", factory=DynamoPackage)
+            for i in range(12)
+        ]
+        self._save_pkgs(*pkgs)
+        # Limit forces DynamoDB to answer in pages
+        items = list(_iter_items(self.packages, Limit=5))
+        self.assertEqual(len(items), len(pkgs))
+
+    def test_query_pages(self):
+        """Querying the name index walks every page of results"""
+        pkgs = [
+            make_package(
+                version=f"1.{i}", filename=f"mypkg-1.{i}.tar.gz", factory=DynamoPackage
+            )
+            for i in range(12)
+        ]
+        self._save_pkgs(*pkgs)
+        items = list(self.db._query_name(self.packages, "mypkg", Limit=5))
+        self.assertEqual(len(items), len(pkgs))
+
+    def test_fetch_summaries_batches(self):
+        """Fetching summaries chunks the names into several requests"""
+        pkgs = [
+            make_package(
+                f"pkg{i}", filename=f"pkg{i}-1.1.tar.gz", factory=DynamoPackage
+            )
+            for i in range(BATCH_GET_SIZE + 10)
+        ]
+        self._save_pkgs(*pkgs)
+        summaries = self.db._fetch_summaries([p.name for p in pkgs])
+        self.assertCountEqual([s.name for s in summaries], [p.name for p in pkgs])
+
+    def test_fetch_summaries_retries_unprocessed(self):
+        """Keys DynamoDB leaves unprocessed are requested again"""
+        pkg = make_package(factory=DynamoPackage)
+        item = PackageSummary(pkg).to_item()
+        table_name = self.summaries.name
+        self.db.dynamo = MagicMock()
+        self.db.dynamo.batch_get_item.side_effect = [
+            {
+                "Responses": {},
+                "UnprocessedKeys": {table_name: {"Keys": [{"name": pkg.name}]}},
+            },
+            {"Responses": {table_name: [item]}},
+        ]
+
+        summaries = self.db._fetch_summaries([pkg.name])
+
+        self.assertEqual(self.db.dynamo.batch_get_item.call_count, 2)
+        self.assertEqual([s.name for s in summaries], [pkg.name])
 
     def test_check_health_success(self):
         """check_health returns True for good connection"""
