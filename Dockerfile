@@ -20,7 +20,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock README.rst ./
 COPY pypicloud ./pypicloud
 # uwsgi has no wheels, so it is compiled here and copied into the runtime image
-RUN uv sync --frozen --no-dev --no-editable --extra ldap --extra redis --extra dynamo \
+RUN uv sync --frozen --no-dev --no-editable --extra all_plugins \
     && uv pip install --no-cache --python /opt/venv/bin/python uwsgi
 
 FROM python:3.14-slim-bookworm
