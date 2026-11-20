@@ -45,5 +45,8 @@ WORKDIR /var/lib/pypicloud
 EXPOSE 8080
 
 # Generate the config with: ppc-make-config -r config.ini
+# --uid/--gid drop privileges if the image is started as root; they are ignored
+# when it already runs as the unprivileged user
 CMD ["uwsgi", "--master", "--enable-threads", "--http", "0.0.0.0:8080", \
+     "--uid", "pypicloud", "--gid", "pypicloud", \
      "--paste", "config:/etc/pypicloud/config.ini"]

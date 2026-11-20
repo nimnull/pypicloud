@@ -37,5 +37,14 @@ section of the docs.
 
 Docker
 ------
-There is a docker image if you're into that sort of thing:
-https://github.com/stevearc/pypicloud-docker
+The image is published as `nimnull/pypicloud
+<https://hub.docker.com/r/nimnull/pypicloud>`_ for linux/amd64 and linux/arm64.
+It runs uWSGI as an unprivileged user and reads its config from
+``/etc/pypicloud/config.ini``::
+
+    ppc-make-config -r config.ini
+    docker run -p 8080:8080 \
+        -v $PWD/config.ini:/etc/pypicloud/config.ini:ro \
+        nimnull/pypicloud
+
+The ``Dockerfile`` that builds it lives in this repository.

@@ -2,8 +2,8 @@ Changelog
 =========
 If you are upgrading an existing installation, read :ref:`the instructions <upgrade>`
 
-Unreleased
-----------
+2.0.0a1 - 2026/11/20
+--------------------
 This is a breaking release. It requires Python 3.14, it replaces four
 unmaintained dependencies, and **every stored password has to be set again**.
 Read `Upgrade notes`_ before deploying it.
@@ -56,9 +56,10 @@ Dependencies
 
 Deployment
 ~~~~~~~~~~
-* Ship a production ``Dockerfile``: uWSGI 2.0.31 built against CPython 3.14,
-  running as an unprivileged user, reading ``/etc/pypicloud/config.ini`` and
-  listening on port 8080
+* Ship a production ``Dockerfile`` and publish it as ``nimnull/pypicloud`` for
+  linux/amd64 and linux/arm64: uWSGI 2.0.31 built against CPython 3.14, reading
+  ``/etc/pypicloud/config.ini`` and listening on port 8080. It runs as an
+  unprivileged user, and drops privileges itself when started as root
 * ``ppc-create-s3-sync`` and ``ppc-build-lambda-bundle`` are unsupported. They
   build a Lambda bundle around virtualenv 15.1.0 from 2017, no test covers them,
   and both now say so when they run

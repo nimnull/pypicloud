@@ -116,8 +116,14 @@ packages = ["pypicloud"]
 include = ["pypicloud", "tests", "doc", "*.rst", "LICENSE"]
 
 [tool.bumpversion]
-current_version = "1.3.12"
+current_version = "2.0.0a1"
 tag_name = "{new_version}"
+# Accept PEP 440 pre-releases, e.g. 2.0.0a1
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(?:(?P<pre_label>a|b|rc)(?P<pre_n>\\d+))?"
+serialize = [
+    "{major}.{minor}.{patch}{pre_label}{pre_n}",
+    "{major}.{minor}.{patch}",
+]
 commit = true
 tag = true
 
