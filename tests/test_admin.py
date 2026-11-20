@@ -1,5 +1,7 @@
-""" Tests for admin endpoints """
-from mock import MagicMock
+"""Tests for admin endpoints"""
+
+from unittest.mock import MagicMock
+
 from pyramid.httpexceptions import HTTPBadRequest
 
 from pypicloud.views.admin import AdminEndpoints
@@ -8,11 +10,10 @@ from . import MockServerTest
 
 
 class TestAdmin(MockServerTest):
-
     """Tests for admin endpoints"""
 
     def setUp(self):
-        super(TestAdmin, self).setUp()
+        super().setUp()
         self.access = self.request.access = MagicMock()
 
     def test_rebuild(self):
@@ -53,7 +54,7 @@ class TestAdmin(MockServerTest):
     def test_set_admin_status(self):
         """Set the admin flag for a user"""
         self.request.named_subpaths = {"username": "a"}
-        AdminEndpoints(self.request).set_admin_status(True)
+        AdminEndpoints(self.request).set_admin_status(admin=True)
         self.access.set_user_admin.assert_called_with("a", True)
 
     def test_add_group_member(self):
@@ -184,5 +185,5 @@ class TestAdmin(MockServerTest):
 
     def test_toggle_allow_register(self):
         """Toggle registration enabled"""
-        AdminEndpoints(self.request).toggle_allow_register(True)
+        AdminEndpoints(self.request).toggle_allow_register(allow=True)
         self.access.set_allow_register.assert_called_with(True)

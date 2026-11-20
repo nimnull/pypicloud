@@ -1,19 +1,30 @@
-""" Tests for pypicloud """
+"""Tests for pypicloud"""
+
 import os
 import unittest
 from collections import defaultdict
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
-from mock import MagicMock
 from pyramid.testing import DummyRequest
 
 from pypicloud.access import IAccessBackend
 from pypicloud.cache import ICache
-from pypicloud.dateutil import utcnow
 from pypicloud.models import Package
 from pypicloud.storage import IStorage
 
 os.environ["AWS_SECRET_ACCESS_KEY"] = "access_key"
 os.environ["AWS_ACCESS_KEY_ID"] = "secret_key"
+
+
+def assert_subset(expected, actual) -> None:
+    """Assert that actual holds every key of expected, with the same value."""
+    missing = {
+        key: value
+        for key, value in expected.items()
+        if key not in actual or actual[key] != value
+    }
+    assert not missing, f"{actual!r} does not contain {missing!r}"
 
 
 def make_package(
@@ -23,12 +34,12 @@ def make_package(
     last_modified=None,
     summary="summary",
     factory=Package,
-    **kwargs
+    **kwargs,
 ):
     """Convenience method for constructing a package"""
-    filename = filename or "%s-%s.tar.gz" % (name, version)
+    filename = filename or f"{name}-{version}.tar.gz"
     return factory(
-        name, version, filename, last_modified or utcnow(), summary, **kwargs
+        name, version, filename, last_modified or datetime.now(UTC), summary, **kwargs
     )
 
 
@@ -40,7 +51,7 @@ def make_dist(
     requires_python=">=3.5",
     digests=None,
 ):
-    url = url or "https://pypi.org/pypi/%s/%s-%s.tar.gz" % (name, name, version)
+    url = url or f"https://pypi.org/pypi/{name}/{name}-{version}.tar.gz"
     return {
         "name": name,
         "version": version,
@@ -52,11 +63,10 @@ def make_dist(
 
 
 class DummyStorage(IStorage):
-
     """In-memory implementation of IStorage"""
 
     def __init__(self, request=None):
-        super(DummyStorage, self).__init__(request)
+        super().__init__(request)
         self.packages = {}
 
     def list(self, factory=Package):
@@ -78,12 +88,11 @@ class DummyStorage(IStorage):
 
 
 class DummyCache(ICache):
-
     """In-memory implementation of ICache"""
 
     def __init__(self, request=None, **kwargs):
         kwargs.setdefault("storage", DummyStorage)
-        super(DummyCache, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.packages = defaultdict(dict)
 
     def fetch(self, filename):
@@ -96,7 +105,7 @@ class DummyCache(ICache):
 
     def distinct(self):
         """Get all distinct package names"""
-        return list(set((p.name for p in self.packages.values())))
+        return list({p.name for p in self.packages.values()})
 
     def clear(self, package):
         """Remove this package from the caching database"""
@@ -112,7 +121,6 @@ class DummyCache(ICache):
 
 
 class DummyAccess(IAccessBackend):
-
     """In-memory implementation of IAccessBackend"""
 
     def __init__(self, request=None, **kwargs):
@@ -147,7 +155,6 @@ class DummyAccess(IAccessBackend):
 
 
 class MockServerTest(unittest.TestCase):
-
     """Base class for tests that need in-memory ICache objects"""
 
     def setUp(self):
@@ -155,5 +162,4 @@ class MockServerTest(unittest.TestCase):
         self.db = self.request.db = DummyCache(self.request)
         self.access = self.request.access = DummyAccess(self.request)
         self.request.path_url = "/path/"
-        self.params = {}
-        self.request.param = lambda x, y=None: self.params.get(x, y)
+        self.request.params = {}

@@ -1,16 +1,15 @@
-""" Unit tests for the simple endpoints """
+"""Unit tests for the simple endpoints"""
+
 import unittest
 from io import BytesIO
 from types import MethodType
-
-from mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from pypicloud.auth import _request_login
 from pypicloud.views.simple import (
     get_fallback_packages,
     package_versions,
     package_versions_json,
-    search,
     simple,
     upload,
 )
@@ -18,88 +17,53 @@ from pypicloud.views.simple import (
 from . import MockServerTest, make_dist, make_package
 
 
-class FileUpload(object):
+class FileUpload:
     def __init__(self, name, data):
         self.filename = name
         self.file = BytesIO(data)
 
 
 class TestSimple(MockServerTest):
-
     """Unit tests for the /simple endpoints"""
 
     def setUp(self):
-        super(TestSimple, self).setUp()
+        super().setUp()
         self.request.access = MagicMock()
 
     def test_upload(self):
         """Upload endpoint returns the result of api call"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "bar", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
-        pkg = upload(self.request, content, name, version)
+        pkg = upload(self.request, content=content, name=name, version=version)
 
         self.assertEqual(pkg, self.request.db.packages[content.filename])
 
     def test_upload_bad_action(self):
         """Upload endpoint only respects 'file_upload' action"""
-        self.params = {":action": "blah"}
+        self.request.params = {":action": "blah"}
         name, version, content = "foo", "bar", "baz"
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response.status_code, 400)
 
     def test_upload_no_write_permission(self):
         """Upload without write permission returns 403"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "bar", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
         self.request.access.has_permission.return_value = False
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response, self.request.forbid())
 
     def test_upload_duplicate(self):
         """Uploading a duplicate package returns 409"""
         self.request.access.can_overwrite_package.return_value = False
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "1.2", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
         self.db.upload(content.filename, content.file, name)
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response.status_code, 409)
-
-    def test_search(self):
-        """Pip search executes successfully"""
-        self.params = {":action": "file_upload"}
-        name1, version1, content1 = "foo", "1.1", FileUpload("testfile", b"test1234")
-        content1.filename = "foo-1.2.tar.gz"
-        name2, version2, content2 = "bar", "1.0", FileUpload("testfile", b"test1234")
-        content2.filename = "bar-1.2.tar.gz"
-        upload(self.request, content1, name1, version1)
-        upload(self.request, content2, name2, version2)
-
-        criteria = {"name": ["foo"], "summary": ["foo"]}
-        response = search(self.request, criteria, "or")
-        expected = [{"name": "foo", "version": "1.1", "summary": ""}]
-        self.assertListEqual(response, expected)
-
-    def test_search_permission_filter(self):
-        """Pip search only gets results that user has read perms for"""
-        self.params = {":action": "file_upload"}
-        name1, version1, content1 = "pkg1", "1.1", FileUpload("testfile", b"test1234")
-        content1.filename = "pkg1-1.1.tar.gz"
-        name2, version2, content2 = "pkg2", "1.0", FileUpload("testfile", b"test1234")
-        content2.filename = "pkg2-1.0.tar.gz"
-        name3, version3, content3 = "other", "1.0", FileUpload("testfile", b"test1234")
-        content3.filename = "other-1.0.tar.gz"
-        upload(self.request, content1, name1, version1)
-        upload(self.request, content2, name2, version2)
-        upload(self.request, content3, name3, version3)
-        self.request.access.has_permission.side_effect = lambda x, _: x == "pkg1"
-        criteria = {"name": ["pkg"]}
-        response = search(self.request, criteria, "and")
-        self.assertCountEqual(
-            response, [{"name": "pkg1", "version": "1.1", "summary": ""}]
-        )
 
     def test_list(self):
         """Simple list should return api call"""
@@ -114,10 +78,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "https://pypi.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "https://pypi.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"https://pypi.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"https://pypi.org/pypi/{name}/{wheelname}"
         dist = make_dist(url, name, version)
         wheel_dist = make_dist(wheel_url, name, version)
         self.request.locator.get_releases.return_value = [dist, wheel_dist]
@@ -148,10 +112,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "https://pypi.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "https://pypi.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"https://pypi.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"https://pypi.org/pypi/{name}/{wheelname}"
         dist = make_dist(url, name, version)
         wheel_dist = make_dist(wheel_url, name, version)
         self.request.locator.get_releases.return_value = [dist, wheel_dist]
@@ -179,10 +143,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "http://pypi.python.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "http://pypi.python.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"http://pypi.python.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"http://pypi.python.org/pypi/{name}/{wheelname}"
         dist = MagicMock()
         dist.name = name
         self.request.locator.get_project.return_value = {
@@ -195,7 +159,6 @@ class TestSimple(MockServerTest):
 
 
 class PackageReadTestBase(unittest.TestCase):
-
     """Base class test for reading packages"""
 
     fallback = None
@@ -372,7 +335,6 @@ class PackageReadTestBase(unittest.TestCase):
 
 
 class TestRedirect(PackageReadTestBase):
-
     """Test reading packages with fallback=redirect and always_show_upstream=false"""
 
     fallback = "redirect"
@@ -434,7 +396,6 @@ class TestRedirect(PackageReadTestBase):
 
 
 class TestRedirectAlwaysShow(PackageReadTestBase):
-
     """Test reading packages with fallback=redirect and always_show_upstream=truue"""
 
     fallback = "redirect"
@@ -494,7 +455,6 @@ class TestRedirectAlwaysShow(PackageReadTestBase):
 
 
 class TestCache(PackageReadTestBase):
-
     """Test reading packages with fallback=cache and always_show_upstream=false"""
 
     fallback = "cache"
@@ -550,7 +510,6 @@ class TestCache(PackageReadTestBase):
 
 
 class TestCacheAlwaysShow(PackageReadTestBase):
-
     """Test reading packages with fallback=cache and always_show_upstream=true"""
 
     fallback = "cache"
@@ -643,7 +602,6 @@ class TestCacheAlwaysShow(PackageReadTestBase):
 
 
 class TestNoFallback(PackageReadTestBase):
-
     """Tests for reading packages with fallback=none"""
 
     fallback = "none"

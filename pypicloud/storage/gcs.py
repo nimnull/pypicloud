@@ -1,9 +1,11 @@
-""" Store packages in GCS """
+"""Store packages in GCS"""
+
 import json
 import logging
 import os
 import posixpath
 from datetime import timedelta
+from typing import override
 
 from google.api_core.client_options import ClientOptions
 from google.auth import compute_engine
@@ -21,7 +23,6 @@ LOG = logging.getLogger(__name__)
 
 
 class GoogleCloudStorage(ObjectStoreStorage):
-
     """Storage backend that uses GCS"""
 
     test = False
@@ -36,7 +37,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
         iam_signer_service_account_email=None,
         **kwargs,
     ):
-        super(GoogleCloudStorage, self).__init__(request=request, **kwargs)
+        super().__init__(request=request, **kwargs)
 
         self._bucket = None
         self._bucket_factory = bucket_factory
@@ -55,6 +56,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             )
 
     @classmethod
+    @override
     def _subclass_specific_config(cls, settings, common_config):
         """Extract GCP-specific config settings: specifically, the path to
         the service account key file, and the project id.  Both are
@@ -70,9 +72,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             and not cls.test
         ):
             raise Exception(
-                "Service account json file not found at path {}".format(
-                    service_account_json_filename
-                )
+                f"Service account json file not found at path {service_account_json_filename}"
             )
 
         gcp_api_endpoint = settings.get("storage.gcp_api_endpoint")
@@ -88,7 +88,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             "storage.iam_signer_service_account_email"
         )
         if iam_signer_service_account_email is None and service_account_json_filename:
-            with open(service_account_json_filename, "r", encoding="utf-8") as ifile:
+            with open(service_account_json_filename, encoding="utf-8") as ifile:
                 credentials = json.load(ifile)
             iam_signer_service_account_email = credentials.get("client_email")
 
@@ -128,7 +128,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             if not os.path.isfile(service_account_json_filename) and not cls.test:
                 raise Exception(
                     "Service account JSON file not found at provided "
-                    "path {}".format(service_account_json_filename)
+                    f"path {service_account_json_filename}"
                 )
 
             LOG.info(
@@ -158,6 +158,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
         return bucket
 
     @classmethod
+    @override
     def package_from_object(cls, obj, factory):
         """Create a package from a GCS object"""
         filename = posixpath.basename(obj.name)
@@ -176,6 +177,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             self._bucket = self._bucket_factory()
         return self._bucket
 
+    @override
     def list(self, factory=Package):
         blobs = self.bucket.list_blobs(prefix=self.bucket_prefix or None)
         for blob in blobs:
@@ -183,6 +185,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             if pkg is not None:
                 yield pkg
 
+    @override
     def _generate_url(self, package):
         """Generate a signed url to the GCS file"""
         blob = self._get_gcs_blob(package)
@@ -209,6 +212,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
     def get_uri(self, package):
         return f"gs://{self.bucket.name}/{self.get_path(package)}"
 
+    @override
     def upload(self, package, datastream):
         """Upload the package to GCS"""
         metadata = {"name": package.name, "version": package.version}
@@ -230,6 +234,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             for chunk in stream_file(datastream):
                 fp.write(chunk)  # multipart upload
 
+    @override
     def open(self, package):
         """Overwrite open method to re-use client instead of using signed url."""
         return _open(
@@ -239,6 +244,7 @@ class GoogleCloudStorage(ObjectStoreStorage):
             transport_params={"client": self.bucket.client},
         )
 
+    @override
     def delete(self, package):
         """Delete the package"""
         blob = self._get_gcs_blob(package)

@@ -1,5 +1,7 @@
-""" Tests for login views """
-from mock import MagicMock, PropertyMock, patch
+"""Tests for login views"""
+
+from unittest.mock import MagicMock, PropertyMock, patch
+
 from pyramid.testing import DummyRequest
 
 from pypicloud.views import login
@@ -8,11 +10,10 @@ from . import MockServerTest
 
 
 class TestLoginPage(MockServerTest):
-
     """Tests for the login/403 page"""
 
     def setUp(self):
-        super(TestLoginPage, self).setUp()
+        super().setUp()
         self.request.app_url = lambda *x: "/" + "/".join(x)
 
     def test_user_fetch_login(self):
@@ -34,63 +35,60 @@ class TestLoginPage(MockServerTest):
 
 
 class TestLogin(MockServerTest):
-
     """Tests for login/register/logout operations"""
 
     def setUp(self):
-        super(TestLogin, self).setUp()
+        super().setUp()
         self.request.app_url = lambda *x: "/" + "/".join(x)
         self.request.access = MagicMock()
 
     def test_login_invalid(self):
         """Attempting login with invalid credentials returns 403"""
         self.request.access.verify_user.return_value = False
-        ret = login.do_login(self.request, "dsa", "conspiracytheory")
+        ret = login.do_login(self.request, username="dsa", password="conspiracytheory")
         self.assertEqual(ret.status_code, 403)
 
     @patch("pypicloud.views.login.remember")
     def test_login_valid(self, remember):
         """Logging in sets the user in the session"""
         self.request.access.verify_user.return_value = True
-        login.do_login(self.request, "dsa", "conspiracytheory")
+        login.do_login(self.request, username="dsa", password="conspiracytheory")
         remember.assert_called_with(self.request, "dsa")
 
     def test_register(self):
         """Registering new user registers user with access backend"""
         self.request.access.user_data.return_value = None
-        login.register(self.request, "dsa", "pass")
-        # pylint: disable=E1101
+        login.register(self.request, username="dsa", password="pass")
         self.request.access.register.assert_called_with("dsa", "pass")
-        # pylint: enable=E1101
 
     def test_register_disabled(self):
         """If registration is disabled, registering new user returns 403"""
         self.request.access.allow_register.return_value = False
         self.request.access.need_admin.return_value = False
-        ret = login.register(self.request, "dsa", "pass")
+        ret = login.register(self.request, username="dsa", password="pass")
         self.assertEqual(ret.status_code, 403)
 
     def test_register_long_username(self):
         """Super long usernames can't register"""
         self.request.access.user_data.return_value = None
-        ret = login.register(self.request, 200 * "a", "pass")
+        ret = login.register(self.request, username=200 * "a", password="pass")
         self.assertEqual(ret["code"], 400)
 
     def test_register_blank_username(self):
         """Blank usernames can't register"""
         self.request.access.user_data.return_value = None
-        ret = login.register(self.request, "", "pass")
+        ret = login.register(self.request, username="", password="pass")
         self.assertEqual(ret["code"], 400)
 
     def test_register_long_password(self):
         """Super long passwords can't register"""
         self.request.access.user_data.return_value = None
-        ret = login.register(self.request, "abc", 200 * "a")
+        ret = login.register(self.request, username="abc", password=200 * "a")
         self.assertEqual(ret["code"], 400)
 
     def test_register_duplicate(self):
         """If registering duplicate user, registration returns 400"""
-        ret = login.register(self.request, "dsa", "pass")
+        ret = login.register(self.request, username="dsa", password="pass")
         self.assertEqual(ret["code"], 400)
         self.assertEqual(self.request.response.status_code, 400)
 

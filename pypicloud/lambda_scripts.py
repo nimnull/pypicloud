@@ -1,4 +1,5 @@
-""" Helpers for syncing packages into the cache in AWS Lambda """
+"""Helpers for syncing packages into the cache in AWS Lambda"""
+
 import argparse
 import json
 import logging
@@ -8,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from distutils.spawn import find_executable  # pylint: disable=E0611,F0401
 from urllib.request import urlretrieve
 
 import boto3
@@ -17,12 +17,13 @@ from pyramid.paster import get_appsettings
 from pypicloud import __version__, _lambda_handler
 from pypicloud.storage.s3 import S3Storage
 
+LOG = logging.getLogger(__name__)
+
 HANDLER_FILENAME = "lambda_script.py"
 
 VENV_VERSION = "15.1.0"
 VENV_URL = (
-    "https://pypi.org/packages/source/v/"
-    "virtualenv/virtualenv-%s.tar.gz" % VENV_VERSION
+    f"https://pypi.org/packages/source/v/virtualenv/virtualenv-{VENV_VERSION}.tar.gz"
 )
 
 
@@ -34,7 +35,7 @@ def _create_role(role_name, description, policy):
     try:
         role.load()
     except iam.exceptions.NoSuchEntityException:
-        print("Creating IAM role %s" % role_name)
+        print(f"Creating IAM role {role_name}")
         iam.create_role(
             Path="/pypicloud/",
             RoleName=role_name,
@@ -118,8 +119,8 @@ def _create_dynamodb_role(settings, bucket):
             result = dynamo.describe_table(TableName=tablename)
         except dynamo.exceptions.ResourceNotFoundException:
             print(
-                "Could not find DynamoDB table %r. "
-                "Try running the server first to create the tables" % tablename
+                f"Could not find DynamoDB table {tablename!r}. "
+                "Try running the server first to create the tables"
             )
             sys.exit(1)
         table_arns.append(result["Table"]["TableArn"])
@@ -137,25 +138,22 @@ def _create_dynamodb_role(settings, bucket):
 
 def _create_default_role(settings, bucket):
     """Create the AWS Role needed for Lambda with most caches"""
-    policy = (
-        """{
+    policy = f"""{{
         "Version": "2012-10-17",
         "Statement": [
-            {
+            {{
                 "Effect": "Allow",
                 "Action": "logs:*",
                 "Resource": "arn:aws:logs:*"
-            },
-            {
+            }},
+            {{
                 "Effect": "Allow",
                 "Action": [
                     "s3:GetObject"
                 ],
-                "Resource": "arn:aws:s3:::%s/*"
-            }]}
+                "Resource": "arn:aws:s3:::{bucket.name}/*"
+            }}]}}
     """
-        % bucket.name
-    )
     db = settings["pypi.db"]
     return _create_role(
         "pypicloud_lambda_" + db,
@@ -166,7 +164,7 @@ def _create_default_role(settings, bucket):
 
 def make_virtualenv(env):
     """Create a virtualenv"""
-    if find_executable("virtualenv") is not None:
+    if shutil.which("virtualenv") is not None:
         cmd = ["virtualenv"] + [env]
         subprocess.check_call(cmd)
     else:
@@ -175,15 +173,16 @@ def make_virtualenv(env):
         try:
             subprocess.check_call(["tar", "xzf", path])
             subprocess.check_call(
-                [sys.executable, "virtualenv-%s/virtualenv.py" % VENV_VERSION, env]
+                [sys.executable, f"virtualenv-{VENV_VERSION}/virtualenv.py", env]
             )
         finally:
             os.unlink(path)
-            shutil.rmtree("virtualenv-%s" % VENV_VERSION)
+            shutil.rmtree(f"virtualenv-{VENV_VERSION}")
 
 
 def build_lambda_bundle(argv=None):
     """Build the zip bundle that will be deployed to AWS Lambda"""
+    _warn_unsupported()
     if argv is None:
         argv = sys.argv[1:]
     parser = argparse.ArgumentParser(description=build_lambda_bundle.__doc__)
@@ -197,22 +196,22 @@ def build_lambda_bundle(argv=None):
     bundle = _build_lambda_bundle(settings)
     with open(args.o, "wb") as ofile:
         ofile.write(bundle)
-    print("Wrote bundle file %s" % args.o)
+    print(f"Wrote bundle file {args.o}")
 
 
 def _build_lambda_bundle(settings):
     """Build the lambda bundle"""
     venv_dir = tempfile.mkdtemp()
     try:
-        print("Creating virtualenv %s" % venv_dir)
+        print(f"Creating virtualenv {venv_dir}")
         make_virtualenv(venv_dir)
         print("Installing pypicloud into virtualenv")
         pip = os.path.join(venv_dir, "bin", "pip")
         subprocess.check_call(
-            [pip, "install", "pypicloud[dynamo,redis]==%s" % __version__]
+            [pip, "install", f"pypicloud[dynamo,redis]=={__version__}"]
         )
 
-        bundle = "%s/output.zip" % venv_dir
+        bundle = f"{venv_dir}/output.zip"
         zipf = zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED)
 
         site_packages = os.path.join(venv_dir, "lib", "site-packages")
@@ -229,7 +228,7 @@ def _build_lambda_bundle(settings):
             open(
                 os.path.join(site_packages, mod, "__init__.py"), "a", encoding="utf-8"
             ).close()
-        for root, dirs, files in os.walk(site_packages):
+        for root, _dirs, files in os.walk(site_packages):
             for filename in files:
                 fullpath = os.path.join(root, filename)
                 zipf.write(fullpath, os.path.relpath(fullpath, site_packages))
@@ -246,18 +245,28 @@ def _build_lambda_bundle(settings):
         shutil.rmtree(venv_dir)
 
 
+def _warn_unsupported() -> None:
+    """Log that these scripts are unsupported and untested"""
+    LOG.warning(
+        "The Lambda sync scripts are unsupported: they build a bundle around "
+        "virtualenv %s from 2017 and no test covers them.",
+        VENV_VERSION,
+    )
+
+
 def create_sync_scripts(argv=None):
     """
     Set bucket notifications and create AWS Lambda functions that will sync
     changes in the S3 bucket to the cache
 
     """
+    _warn_unsupported()
     if argv is None:
         argv = sys.argv[1:]
     parser = argparse.ArgumentParser(description=create_sync_scripts.__doc__)
     parser.add_argument(
         "-n",
-        help="Name of the AWS Lambda function to " " create (default %(default)s)",
+        help="Name of the AWS Lambda function to  create (default %(default)s)",
         default="pypicloud_s3_sync",
     )
     parser.add_argument(
@@ -309,11 +318,11 @@ def create_sync_scripts(argv=None):
         pass
     else:
         if args.f:
-            print("Deleting pre-existing function %r" % args.n)
+            print(f"Deleting pre-existing function {args.n!r}")
             lam.delete_function(FunctionName=args.n)
         else:
             func_arn = func["Configuration"]["FunctionArn"]
-            print("Lambda function %r already exists. Use -f to overwrite" % args.n)
+            print(f"Lambda function {args.n!r} already exists. Use -f to overwrite")
 
     # Create the lambda function
     if func_arn is None:
@@ -325,7 +334,7 @@ def create_sync_scripts(argv=None):
             if key.startswith("db."):
                 small_settings[key] = val
 
-        print("Creating Lambda function %s" % args.n)
+        print(f"Creating Lambda function {args.n}")
         func = lam.create_function(
             FunctionName=args.n,
             Runtime="python2.7",

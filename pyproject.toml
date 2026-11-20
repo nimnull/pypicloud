@@ -1,0 +1,159 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pypicloud"
+dynamic = ["version"]
+description = "Private PyPI backed by S3"
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Steven Arcangeli", email = "stevearc@stevearc.com" }]
+keywords = ["pypi", "s3", "cheeseshop", "package"]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Development Status :: 4 - Beta",
+    "Framework :: Pyramid",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Developers",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "smart_open[s3,http]>=7.0",
+    "boto3>=1.35",
+    # beaker needs this
+    "cryptography",
+    "distlib",
+    "packaging>=23",
+    "paste>=3.10",
+    "pwdlib[argon2,bcrypt]>=0.4",
+    "pydantic>=2.9",
+    "pyramid>=2.1",
+    "pyramid_beaker",
+    "pyramid_jinja2",
+    "pyramid_tm",
+    "requests",
+    "sqlalchemy>=2.1",
+    "transaction",
+    "zope.sqlalchemy",
+]
+
+[project.urls]
+Documentation = "http://pypicloud.readthedocs.org/"
+Source = "https://github.com/stevearc/pypicloud"
+
+[project.optional-dependencies]
+ldap = ["python-ldap"]
+# DynamoDB support needs only boto3, which is a core requirement
+dynamo = []
+redis = ["redis"]
+gcs = [
+    "google-cloud-storage>=1.10.0",
+    "smart_open[gcs]>=6.3.0", # ref #320
+]
+azure-blob = [
+    "azure-storage-blob>=12.5.0",
+    "smart_open[azure]>=6.1.0", # ref #304
+]
+all_plugins = ["pypicloud[ldap,dynamo,redis,gcs,azure-blob]"]
+server = ["waitress"]
+
+[project.scripts]
+pypicloud-gen-password = "pypicloud.scripts:gen_password"
+pypicloud-make-config = "pypicloud.scripts:make_config"
+ppc-gen-password = "pypicloud.scripts:gen_password"
+ppc-make-config = "pypicloud.scripts:make_config"
+ppc-migrate = "pypicloud.scripts:migrate_packages"
+ppc-export = "pypicloud.scripts:export_access"
+ppc-import = "pypicloud.scripts:import_access"
+ppc-create-s3-sync = "pypicloud.lambda_scripts:create_sync_scripts"
+ppc-build-lambda-bundle = "pypicloud.lambda_scripts:build_lambda_bundle"
+
+[project.entry-points."paste.app_factory"]
+main = "pypicloud:main"
+
+[dependency-groups]
+test = [
+    "coverage",
+    "coveralls",
+    "moto",
+    "mypy",
+    "mysqlclient",
+    "psycopg[binary]",
+    "pytest",
+    "requests",
+    "ruff",
+    "types-protobuf",
+    "types-redis",
+    "types-requests",
+    "webtest",
+]
+docs = [
+    "numpydoc",
+    "sphinx",
+    "sphinx_rtd_theme",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "docs" },
+    "bump-my-version",
+    "twine",
+]
+
+[tool.hatch.version]
+path = "pypicloud/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pypicloud"]
+
+[tool.hatch.build.targets.sdist]
+include = ["pypicloud", "tests", "doc", "*.rst", "LICENSE"]
+
+[tool.bumpversion]
+current_version = "1.3.12"
+tag_name = "{new_version}"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pypicloud/__init__.py"
+
+[[tool.bumpversion.files]]
+filename = "doc/conf.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+# The azure package has mypy errors inside of it
+# https://github.com/Azure/azure-sdk-for-python/issues/19290
+module = "azure.*"
+follow_imports = "skip"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+# Defaults (E4, E7, E9, F) plus: import order (replaces isort), pyupgrade (keeps the
+# 3.14 floor enforced), bugbear, naive-datetime, comprehensions, simplification.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "DTZ", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build throwaway objects and assert on their shape.
+"tests/*" = ["B011"]

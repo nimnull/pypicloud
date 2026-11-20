@@ -7,13 +7,13 @@ export CURRENT_UID
 if [ -z "$1" ]; then
   echo "$0 [test,shell,run,*]"
 elif [ "$1" == "test" ]; then
-  docker-compose run --rm shell tox
+  docker compose --env-file /dev/null run --rm shell uv run --frozen --all-extras pytest
 elif [ "$1" == "run" ]; then
   shift
-  docker-compose run --rm shell "$@"
+  docker compose --env-file /dev/null run --rm shell "$@"
 elif [ "$1" == "shell" ]; then
-  docker-compose up --build --remove-orphans -d shell
-  docker attach pypicloud_shell_1
+  docker compose --env-file /dev/null up --build --remove-orphans -d shell
+  docker attach pypicloud-shell-1
 else
-  docker-compose "$@"
+  docker compose --env-file /dev/null "$@"
 fi

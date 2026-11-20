@@ -1,82 +1,95 @@
-""" Tests for gracefully reloading the caches """
+"""Tests for gracefully reloading the caches"""
+
 import os
 import unittest
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import redis
 import transaction
-from mock import MagicMock
 from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError
 
 from pypicloud.cache import RedisCache, SQLCache
-from pypicloud.cache.dynamo import DynamoCache, DynamoPackage, PackageSummary
+from pypicloud.cache.dynamo import (
+    BATCH_GET_SIZE,
+    DynamoCache,
+    DynamoPackage,
+    PackageSummary,
+    _iter_items,
+)
 from pypicloud.cache.sql import SQLPackage
-from pypicloud.dateutil import utcnow
 from pypicloud.storage import IStorage
 from pypicloud.util import EnvironSettings
 
 from . import make_package
-from .db_utils import get_mysql_url, get_postgres_url, get_sqlite_url
-
-# pylint: disable=W0707
+from .db_utils import (
+    clear_dynamo_table,
+    configure_dynamo_cache,
+    get_mysql_url,
+    get_postgres_url,
+    get_sqlite_url,
+    scan_packages,
+)
 
 
 class TestDynamoCache(unittest.TestCase):
-
     """Tests for the DynamoCache"""
-
-    dynamo = None
 
     @classmethod
     def setUpClass(cls):
-        super(TestDynamoCache, cls).setUpClass()
-        host = cls.dynamo.host[cls.dynamo.host.index("//") + 2 :]
-        host, port = host.split(":")
-        settings = {
-            "pypi.storage": "tests.DummyStorage",
-            "db.region_name": "us-east-1",
-            "db.host": host,
-            "db.port": port,
-            "db.namespace": "test.",
-            "db.aws_access_key_id": "",
-            "db.aws_secret_access_key": "",
-            "db.graceful_reload": True,
-        }
-        cls.kwargs = DynamoCache.configure(settings)
-        cls.engine = cls.kwargs["engine"]
+        super().setUpClass()
+        cls.kwargs = configure_dynamo_cache(**{"db.graceful_reload": True})
+        cls.packages = cls.kwargs["packages"]
+        cls.summaries = cls.kwargs["summaries"]
 
     @classmethod
     def tearDownClass(cls):
-        super(TestDynamoCache, cls).tearDownClass()
-        cls.engine.delete_schema()
+        super().tearDownClass()
+        cls.packages.delete()
+        cls.summaries.delete()
 
     def setUp(self):
-        super(TestDynamoCache, self).setUp()
+        super().setUp()
         self.db = DynamoCache(DummyRequest(), **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestDynamoCache, self).tearDown()
-        for model in (DynamoPackage, PackageSummary):
-            self.engine.scan(model).delete()
+        super().tearDown()
+        clear_dynamo_table(self.packages, "filename")
+        clear_dynamo_table(self.summaries, "name")
 
     def _save_pkgs(self, *pkgs):
         """Save a DynamoPackage to the db"""
         for pkg in pkgs:
-            self.engine.save(pkg)
-            summary = PackageSummary(pkg)
-            self.engine.save(summary, overwrite=True)
+            self.packages.put_item(Item=pkg.to_item())
+            self.summaries.put_item(Item=PackageSummary(pkg).to_item())
 
     def test_add_missing(self):
         """Add missing packages to cache"""
         keys = [make_package(factory=DynamoPackage)]
         self.storage.list.return_value = keys
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, keys)
-        all_summaries = self.engine.scan(PackageSummary).all()
+        all_summaries = self.summaries.scan()["Items"]
         self.assertEqual(len(all_summaries), 1)
+
+    def test_add_missing_more_than_one_batch(self):
+        """Add missing packages when they span several write and read batches"""
+        # More names than one BatchGetItem request can carry, so the summary
+        # fetch has to chunk them
+        count = BATCH_GET_SIZE + 50
+        keys = [
+            make_package(
+                f"pkg{i}", filename=f"pkg{i}-1.1.tar.gz", factory=DynamoPackage
+            )
+            for i in range(count)
+        ]
+        self.storage.list.return_value = keys
+        self.db.reload_from_storage()
+        self.assertCountEqual(scan_packages(self.packages), keys)
+        self.assertEqual(len(list(_iter_items(self.summaries))), count)
 
     def test_remove_extra(self):
         """Remove extra packages from cache"""
@@ -88,10 +101,10 @@ class TestDynamoCache(unittest.TestCase):
         self.db.save(keys[1])
         self.storage.list.return_value = keys[:1]
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, keys[:1])
         # It should have removed the summary as well
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 1)
+        self.assertEqual(self.summaries.scan()["Count"], 1)
 
     def test_remove_extra_leave_concurrent(self):
         """Removing extra packages will leave packages that were uploaded concurrently"""
@@ -119,9 +132,9 @@ class TestDynamoCache(unittest.TestCase):
         self.storage.list.side_effect = list_storage
 
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs[1:])
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 2)
+        self.assertEqual(self.summaries.scan()["Count"], 2)
 
     def test_remove_extra_concurrent_deletes(self):
         """Remove packages from cache that were concurrently deleted"""
@@ -137,15 +150,15 @@ class TestDynamoCache(unittest.TestCase):
         self.storage.list.side_effect = lambda _: return_values.pop(0)
 
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs[:1])
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 1)
+        self.assertEqual(self.summaries.scan()["Count"], 1)
 
     def test_add_missing_more_recent(self):
         """If we sync a more recent package, update the summary"""
         pkgs = [
             make_package(
-                last_modified=utcnow() - timedelta(hours=1),
+                last_modified=datetime.now(UTC) - timedelta(hours=1),
                 factory=DynamoPackage,
             ),
             make_package(version="1.5", factory=DynamoPackage),
@@ -153,7 +166,7 @@ class TestDynamoCache(unittest.TestCase):
         self.db.save(pkgs[0])
         self.storage.list.return_value = pkgs
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs)
         summaries = self.db.summary()
         self.assertEqual(len(summaries), 1)
@@ -169,19 +182,18 @@ class TestDynamoCache(unittest.TestCase):
         ]
         self.storage.list.return_value = pkgs
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs)
         summaries = self.db.summary()
         self.assertEqual(len(summaries), 1)
 
 
 class TestRedisCache(unittest.TestCase):
-
     """Tests for the RedisCache"""
 
     @classmethod
     def extra_settings(cls):
-        return dict()
+        return {}
 
     @classmethod
     def get_redis_url(cls):
@@ -192,7 +204,7 @@ class TestRedisCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestRedisCache, cls).setUpClass()
+        super().setUpClass()
         redis_url = cls.get_redis_url()
 
         settings = {
@@ -208,19 +220,19 @@ class TestRedisCache(unittest.TestCase):
             cls.redis.flushdb()
         except redis.exceptions.ConnectionError:
             msg = f"Redis not found on {redis_url}"
-            setattr(cls, "setUp", lambda cls: unittest.TestCase.skipTest(cls, msg))
+            cls.setUp = lambda cls: unittest.TestCase.skipTest(cls, msg)
 
     @classmethod
     def tearDownClass(cls):
-        super(TestRedisCache, cls).tearDownClass()
+        super().tearDownClass()
 
     def setUp(self):
-        super(TestRedisCache, self).setUp()
+        super().setUp()
         self.db = RedisCache(DummyRequest(), **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestRedisCache, self).tearDown()
+        super().tearDown()
         self.redis.flushdb()
 
     def _save_pkgs(self, *pkgs):
@@ -296,7 +308,7 @@ class TestRedisCache(unittest.TestCase):
     def test_add_missing_more_recent(self):
         """If we sync a more recent package, update the summary"""
         pkgs = [
-            make_package(last_modified=utcnow() - timedelta(hours=1)),
+            make_package(last_modified=datetime.now(UTC) - timedelta(hours=1)),
             make_package(version="1.5"),
         ]
         self.db.save(pkgs[0])
@@ -325,7 +337,6 @@ class TestRedisCache(unittest.TestCase):
 
 
 class TestClusteredRedisCache(TestRedisCache):
-
     """Tests for the clustered redis cache"""
 
     @classmethod
@@ -349,7 +360,7 @@ class TestSQLiteCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestSQLiteCache, cls).setUpClass()
+        super().setUpClass()
         db_url = cls.get_db_url()
         settings = EnvironSettings(
             {
@@ -361,11 +372,11 @@ class TestSQLiteCache(unittest.TestCase):
         )
         try:
             cls.kwargs = SQLCache.configure(settings)
-        except OperationalError:
-            raise unittest.SkipTest(f"Couldn't connect to database {db_url}")
+        except OperationalError as e:
+            raise unittest.SkipTest(f"Couldn't connect to database {db_url}") from e
 
     def setUp(self):
-        super(TestSQLiteCache, self).setUp()
+        super().setUp()
         transaction.begin()
         self.request = DummyRequest()
         self.request.tm = transaction.manager
@@ -374,7 +385,7 @@ class TestSQLiteCache(unittest.TestCase):
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestSQLiteCache, self).tearDown()
+        super().tearDown()
         transaction.abort()
         self.sql.query(SQLPackage).delete()
         transaction.commit()
@@ -385,7 +396,7 @@ class TestSQLiteCache(unittest.TestCase):
         # Some SQL dbs are rounding the timestamps (looking at you MySQL >:|
         # which is a problem if they round UP to the future, as our
         # calculations depend on the timestamps being monotonically increasing.
-        now = utcnow() - timedelta(seconds=1)
+        now = datetime.now(UTC) - timedelta(seconds=1)
         kwargs.setdefault("last_modified", now)
         kwargs.setdefault("factory", SQLPackage)
         return make_package(*args, **kwargs)
@@ -423,7 +434,7 @@ class TestSQLiteCache(unittest.TestCase):
             # The first time we list from storage, concurrently "upload"
             # pkgs[2]
             if len(return_values) == 2:
-                nowish = utcnow() + timedelta(seconds=1)
+                nowish = datetime.now(UTC) + timedelta(seconds=1)
                 pkg = self._make_package("mypkg3", last_modified=nowish)
                 pkgs.append(pkg)
                 self.db.save(pkg)
@@ -452,7 +463,7 @@ class TestSQLiteCache(unittest.TestCase):
     def test_add_missing_more_recent(self):
         """If we sync a more recent package, update the summary"""
         pkgs = [
-            self._make_package(last_modified=utcnow() - timedelta(hours=1)),
+            self._make_package(last_modified=datetime.now(UTC) - timedelta(hours=1)),
             self._make_package(version="1.5"),
         ]
         self.db.save(pkgs[0])

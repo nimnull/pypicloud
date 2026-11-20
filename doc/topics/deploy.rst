@@ -27,8 +27,28 @@ generate a default production config file.
     You should make sure that ``session.secure`` is ``true``
 
 You may want to tweak :ref:`auth.scheme <auth_scheme>` or :ref:`auth.rounds
-<auth_rounds>` for more speed or more security. See :ref:`passlib` for more
-context.
+<auth_rounds>` for more speed or more security. See :ref:`password_hashing` for
+measured numbers and for the memory that argon2 holds per request.
+
+Docker image
+------------
+The repository ships a ``Dockerfile`` that serves pypicloud with uWSGI as an
+unprivileged user. It expects a config file at ``/etc/pypicloud/config.ini``,
+which you can generate with ``ppc-make-config -r``, and listens on port 8080.
+
+.. code-block:: bash
+
+    $ docker build -t pypicloud .
+    $ docker run -p 8080:8080 -v $PWD/config.ini:/etc/pypicloud/config.ini:ro pypicloud
+
+.. note::
+
+    pyramid still imports ``pkg_resources`` and therefore requires
+    ``setuptools<82``, since setuptools 82 removed it. A vulnerability scan of a
+    pypicloud install reports the advisories open against setuptools 81. Both
+    known ones sit in code pypicloud never reaches: a Windows-only legacy
+    wheel-to-egg install path, and sdist packaging on macOS. They are fixed in
+    setuptools 83 and 84.1, which pyramid's cap excludes.
 
 WSGI Server
 -----------

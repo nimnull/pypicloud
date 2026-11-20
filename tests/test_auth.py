@@ -1,7 +1,8 @@
-""" Tests for auth methods """
-from base64 import b64encode
+"""Tests for auth methods"""
 
-from mock import MagicMock, PropertyMock, patch
+from base64 import b64encode
+from unittest.mock import MagicMock, PropertyMock, patch
+
 from pyramid.testing import DummyRequest
 
 from pypicloud import auth
@@ -10,11 +11,10 @@ from . import MockServerTest
 
 
 class TestBasicAuth(MockServerTest):
-
     """Unit tests for getting HTTP basic auth credentials"""
 
     def setUp(self):
-        super(TestBasicAuth, self).setUp()
+        super().setUp()
         self.request.environ["wsgi.version"] = "9001"
         self.request.registry.realm = "pypi"
 
@@ -73,18 +73,17 @@ class TestBasicAuth(MockServerTest):
 
 
 class TestBasicAuthPolicy(MockServerTest):
-
     """Tests for the BasicAuthPolicy"""
 
     def setUp(self):
-        super(TestBasicAuthPolicy, self).setUp()
+        super().setUp()
         self.policy = auth.PypicloudSecurityPolicy()
         self.request.access = MagicMock()
         self.get_creds = patch("pypicloud.auth.get_basicauth_credentials").start()
         self.get_creds.return_value = None
 
     def tearDown(self):
-        super(TestBasicAuthPolicy, self).tearDown()
+        super().tearDown()
         patch.stopall()
 
     def test_auth_userid_no_credentials(self):
@@ -120,7 +119,6 @@ class TestBasicAuthPolicy(MockServerTest):
 
 
 class TestSessionAuthPolicy(MockServerTest):
-
     """Tests for the SessionAuthPolicy"""
 
     def setUp(self):

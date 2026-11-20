@@ -1,5 +1,6 @@
-""" Unit tests for the packages endpoints """
-from mock import MagicMock
+"""Unit tests for the packages endpoints"""
+
+from unittest.mock import MagicMock
 
 from pypicloud.views.packages import list_packages
 
@@ -7,19 +8,18 @@ from . import MockServerTest
 
 
 class TestPackages(MockServerTest):
-
     """Unit tests for the /packages endpoints"""
 
     def setUp(self):
-        super(TestPackages, self).setUp()
+        super().setUp()
         self.request.access = MagicMock()
 
     def test_list_packages(self):
         """Should return packages with their names and urls"""
         self.request.db = MagicMock()
         self.request.db.distinct.return_value = ["a", "b", "c"]
-        self.request.access.has_permission.side_effect = (
-            lambda x, _: x == "b" or x == "c"
+        self.request.access.has_permission.side_effect = lambda x, _: (
+            x == "b" or x == "c"
         )
 
         def get_packages(x):

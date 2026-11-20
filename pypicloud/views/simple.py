@@ -1,13 +1,16 @@
-""" Views for simple pip interaction """
+"""Views for simple pip interaction"""
+
 import logging
 import posixpath
+from typing import Annotated, Any
 
-import pkg_resources
+from packaging.version import parse
+from pydantic import Field
 from pyramid.httpexceptions import HTTPBadRequest, HTTPConflict, HTTPFound, HTTPNotFound
 from pyramid.view import view_config
-from pyramid_duh import addslash, argify
-from pyramid_rpc.xmlrpc import xmlrpc_method
 
+from pypicloud.duh import addslash
+from pypicloud.params import use_params
 from pypicloud.route import Root, SimplePackageResource, SimpleResource
 from pypicloud.util import (
     PackageParseError,
@@ -21,12 +24,17 @@ LOG = logging.getLogger(__name__)
 
 @view_config(context=Root, request_method="POST", subpath=(), renderer="json")
 @view_config(context=SimpleResource, request_method="POST", subpath=(), renderer="json")
-@argify
+@use_params
 def upload(
-    request, content, name=None, version=None, summary=None, requires_python=None
+    request,
+    content: Any,
+    name: str | None = None,
+    version: str | None = None,
+    summary: str | None = None,
+    requires_python: str | None = None,
+    action: Annotated[str, Field(alias=":action")] = "file_upload",
 ):
     """Handle update commands"""
-    action = request.param(":action", "file_upload")
     # Direct uploads from the web UI go here, and don't have a name/version
     if name is None or version is None:
         name, version = parse_filename(content.filename)
@@ -48,22 +56,7 @@ def upload(
         except ValueError as e:
             return HTTPConflict(*e.args)
     else:
-        return HTTPBadRequest("Unknown action '%s'" % action)
-
-
-@xmlrpc_method(endpoint="pypi")
-@xmlrpc_method(endpoint="pypi_slash")
-def search(request, criteria, query_type):
-    """
-    Perform searches from pip. This handles XML RPC requests to the "pypi"
-    endpoint (configured as /pypi/) that specify the method "search".
-
-    """
-    filtered = []
-    for pkg in request.db.search(criteria, query_type):
-        if request.access.has_permission(pkg.name, "read"):
-            filtered.append(pkg.search_summary())
-    return filtered
+        return HTTPBadRequest(f"Unknown action '{action}'")
 
 
 @view_config(
@@ -138,7 +131,7 @@ def package_versions_json(context, request):
             name, version_str = parse_filename(filename)
         except PackageParseError:
             continue
-        version = pkg_resources.parse_version(version_str)
+        version = parse(version_str)
         if max_version is None or version > max_version:
             max_version = version
 
@@ -211,9 +204,11 @@ def _redirect(context, request):
     """Return a 302 to the fallback url for this package"""
     if request.registry.fallback_base_url:
         path = request.path.lstrip("/")
-        redirect_url = "%s/%s" % (request.registry.fallback_base_url.rstrip("/"), path)
+        redirect_url = "{}/{}".format(
+            request.registry.fallback_base_url.rstrip("/"), path
+        )
     else:
-        redirect_url = "%s/%s/" % (
+        redirect_url = "{}/{}/".format(
             request.registry.fallback_url.rstrip("/"),
             context.name,
         )
@@ -264,7 +259,7 @@ def _simple_cache(context, request):
 
     if not request.access.has_permission(normalized_name, "read"):
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
 
@@ -274,7 +269,7 @@ def _simple_cache(context, request):
 
     if not request.access.can_update_cache():
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
     else:
@@ -328,7 +323,7 @@ def _simple_serve(context, request):
 
     if not request.access.has_permission(normalized_name, "read"):
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
 

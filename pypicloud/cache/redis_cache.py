@@ -1,12 +1,13 @@
-""" Store package data in redis """
+"""Store package data in redis"""
+
 import calendar
 import json
 import logging
 from collections import defaultdict
+from datetime import UTC, datetime
+from typing import override
 
 from pyramid.settings import asbool
-
-from pypicloud.dateutil import utcfromtimestamp, utcnow
 
 from .base import ICache
 
@@ -23,24 +24,24 @@ def summary_from_package(package):
 
 
 class RedisCache(ICache):
-
     """Caching database that uses redis"""
 
     redis_prefix = "pypicloud:"
 
     def __init__(self, request=None, db=None, graceful_reload=False, **kwargs):
-        super(RedisCache, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.db = db
         self.graceful_reload = graceful_reload
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(RedisCache, cls).configure(settings)
+        kwargs = super().configure(settings)
         try:
             from redis import RedisCluster, StrictRedis
         except ImportError as e:  # pragma: no cover
             raise ImportError(
-                "You must 'pip install redis' before using " "redis as the database"
+                "You must 'pip install redis' before using redis as the database"
             ) from e
         kwargs["graceful_reload"] = asbool(settings.get("db.graceful_reload", False))
         db_url = settings.get("db.url")
@@ -52,7 +53,7 @@ class RedisCache(ICache):
 
     def redis_key(self, key):
         """Get the key to a redis hash that stores a package"""
-        return "%spackage:%s" % (self.redis_prefix, key)
+        return f"{self.redis_prefix}package:{key}"
 
     @property
     def redis_set(self):
@@ -61,12 +62,13 @@ class RedisCache(ICache):
 
     def redis_filename_set(self, name):
         """Get the key to a redis set of filenames for a package"""
-        return "%sset:%s" % (self.redis_prefix, name)
+        return f"{self.redis_prefix}set:{name}"
 
     def redis_summary_key(self, name):
         """Get the redis key to a summary for a package"""
-        return "%ssummary:%s" % (self.redis_prefix, name)
+        return f"{self.redis_prefix}summary:{name}"
 
+    @override
     def fetch(self, filename):
         data = self.db.hgetall(self.redis_key(filename))
         if not data:
@@ -78,15 +80,16 @@ class RedisCache(ICache):
         name = data.pop("name")
         version = data.pop("version")
         filename = data.pop("filename")
-        last_modified = utcfromtimestamp(float(data.pop("last_modified")))
+        last_modified = datetime.fromtimestamp(float(data.pop("last_modified")), UTC)
         summary = data.pop("summary")
         if summary == "":
             summary = None
-        kwargs = dict(((k, json.loads(v)) for k, v in data.items()))
+        kwargs = {k: json.loads(v) for k, v in data.items()}
         return self.new_package(
             name, version, filename, last_modified, summary, **kwargs
         )
 
+    @override
     def all(self, name):
         filenames = self.db.smembers(self.redis_filename_set(name))
         pipe = self.db.pipeline()
@@ -96,9 +99,11 @@ class RedisCache(ICache):
         packages.sort(reverse=True)
         return packages
 
+    @override
     def distinct(self):
         return sorted(self.db.smembers(self.redis_set))
 
+    @override
     def summary(self):
         return self._load_summaries(self.db.smembers(self.redis_set))
 
@@ -111,9 +116,12 @@ class RedisCache(ICache):
         for summary in summaries:
             if summary.get("summary", "") == "":
                 summary["summary"] = None
-            summary["last_modified"] = utcfromtimestamp(float(summary["last_modified"]))
+            summary["last_modified"] = datetime.fromtimestamp(
+                float(summary["last_modified"]), UTC
+            )
         return summaries
 
+    @override
     def clear(self, package):
         count = self._delete_package(package)
         if count == 0:
@@ -142,11 +150,13 @@ class RedisCache(ICache):
         if should_execute:
             pipe.execute()
 
+    @override
     def clear_all(self):
         keys = list(self.db.scan_iter(self.redis_prefix + "*"))
         if keys:
             self.db.delete(*keys)
 
+    @override
     def save(self, package, pipe=None, save_summary=True):
         should_execute = False
         if pipe is None:
@@ -163,7 +173,7 @@ class RedisCache(ICache):
         }
         for key, value in package.data.items():
             data[key] = json.dumps(value)
-        pipe.hmset(self.redis_key(package.filename), data)
+        pipe.hset(self.redis_key(package.filename), mapping=data)
         pipe.sadd(self.redis_set, package.name)
         pipe.sadd(self.redis_filename_set(package.name), package.filename)
         if save_summary:
@@ -175,9 +185,9 @@ class RedisCache(ICache):
         """Save a summary dict to redis"""
         dt = summary["last_modified"]
         last_modified = calendar.timegm(dt.utctimetuple()) + dt.microsecond / 1000000.0
-        pipe.hmset(
+        pipe.hset(
             self.redis_summary_key(summary["name"]),
-            {
+            mapping={
                 "name": summary["name"],
                 "summary": summary["summary"] or "",
                 "last_modified": last_modified,
@@ -191,6 +201,7 @@ class RedisCache(ICache):
             pipe.hgetall(filename_key)
         return [self._load(data) for data in pipe.execute() if data]
 
+    @override
     def reload_from_storage(self, clear=True):
         if not self.graceful_reload:
             if clear:
@@ -204,7 +215,7 @@ class RedisCache(ICache):
 
         LOG.info("Rebuilding cache from storage")
         # Log start time
-        start = utcnow()
+        start = datetime.now(UTC)
         # Fetch packages from storage s1
         s1 = set(self.storage.list(self.new_package))
         # Fetch cache packages c1
@@ -290,11 +301,12 @@ class RedisCache(ICache):
                 pipe.scard(self.redis_filename_set(name))
             counts = pipe.execute()
             pipe = self.db.pipeline()
-            for name, count in zip(removed, counts):
+            for name, count in zip(removed, counts, strict=False):
                 if count == 0:
                     self._delete_summary(name, pipe)
             pipe.execute()
 
+    @override
     def check_health(self):
         from redis import RedisError
 

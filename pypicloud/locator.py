@@ -1,4 +1,5 @@
-""" Simple replacement for distlib SimpleScrapingLocator """
+"""Simple replacement for distlib SimpleScrapingLocator"""
+
 import logging
 
 import distlib.locators
@@ -10,8 +11,7 @@ from .util import TimedCache
 LOG = logging.getLogger(__name__)
 
 
-class SimpleJsonLocator(object):
-
+class SimpleJsonLocator:
     """Simple replacement for distlib SimpleScrapingLocator"""
 
     def __init__(self, base_index):
@@ -23,7 +23,7 @@ class SimpleJsonLocator(object):
         return self._cache[project_name]
 
     def _get_releases(self, project_name):
-        url = "%s/pypi/%s/json" % (self.base_index, project_name)
+        url = f"{self.base_index}/pypi/{project_name}/json"
         try:
             response = requests.get(url)
             response.raise_for_status()

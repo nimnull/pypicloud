@@ -1,9 +1,10 @@
-""" Render views for logging in and out of the web interface """
+"""Render views for logging in and out of the web interface"""
+
 from pyramid.httpexceptions import HTTPForbidden, HTTPFound
 from pyramid.security import NO_PERMISSION_REQUIRED, forget, remember
 from pyramid.view import view_config
-from pyramid_duh import argify
 
+from pypicloud.params import use_params
 from pypicloud.route import AccountResource
 
 
@@ -39,8 +40,8 @@ def do_forbidden(request):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def do_login(request, username, password):
+@use_params
+def do_login(request, username: str, password: str):
     """Check credentials and log in"""
     if request.access.verify_user(username, password):
         request.response.headers.extend(remember(request, username))
@@ -52,9 +53,9 @@ def do_login(request, username, password):
 def register_new_user(access, username, password):
     """Register a new user & handle duplicate detection"""
     if access.user_data(username) is not None:
-        raise ValueError("User '%s' already exists!" % username)
+        raise ValueError(f"User '{username}' already exists!")
     if username in access.pending_users():
-        raise ValueError("User '%s' has already registered!" % username)
+        raise ValueError(f"User '{username}' has already registered!")
     access.register(username, password)
     if access.need_admin():
         access.approve_user(username)
@@ -89,14 +90,14 @@ def handle_register_request(request, username, password):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def do_token_register(request, token, password):
+@use_params
+def do_token_register(request, token: str, password: str):
     """Consume a signed token and create a new user"""
     username = request.access.validate_signup_token(token)
     if username is None:
         raise ValueError("Invalid token")
     if request.access.user_data(username) is not None:
-        raise ValueError("User %s already exists" % username)
+        raise ValueError(f"User {username} already exists")
     request.access.register(username, password)
     request.access.approve_user(username)
     request.response.headers.extend(remember(request, username))
@@ -111,8 +112,8 @@ def do_token_register(request, token, password):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def register(request, username, password):
+@use_params
+def register(request, username: str, password: str):
     """Check credentials and log in"""
     return handle_register_request(request, username, password)
 

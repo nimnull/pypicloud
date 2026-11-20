@@ -1,7 +1,9 @@
-""" AWS Lambda handler that process S3 object notifications """
+"""AWS Lambda handler that process S3 object notifications"""
+
 import json
 import os
 import posixpath
+from datetime import UTC, datetime
 
 import boto3
 
@@ -9,7 +11,6 @@ import boto3
 def handle_s3_event(event, context):
     """Handle S3 object notification"""
     from pypicloud.cache import get_cache_impl
-    from pypicloud.dateutil import utcnow
     from pypicloud.storage.s3 import S3Storage
     from pypicloud.util import PackageParseError, parse_filename
 
@@ -29,22 +30,22 @@ def handle_s3_event(event, context):
         key = record["s3"]["object"]["key"]
         event_name = record["eventName"]
         if event_name.startswith("ObjectCreated"):
-            print("S3 object %r created" % key)
+            print(f"S3 object {key!r} created")
             obj = s3.Object(bucket, key)
             package = S3Storage.package_from_object(obj, cache.new_package)
             existing_pkg = cache.fetch(package.filename)
             if existing_pkg is None:
-                print("Saving package %s" % package)
+                print(f"Saving package {package}")
                 cache.save(package)
             else:
                 print("Package already cached")
         else:
-            print("S3 object %r deleted" % key)
+            print(f"S3 object {key!r} deleted")
             filename = posixpath.basename(key)
             try:
                 name, version = parse_filename(filename)
             except PackageParseError:
                 name = version = "dummy"
-            package = cache.new_package(name, version, filename, utcnow(), "")
-            print("Deleting package %s" % package)
+            package = cache.new_package(name, version, filename, datetime.now(UTC), "")
+            print(f"Deleting package {package}")
             cache.clear(package)

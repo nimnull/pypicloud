@@ -1,20 +1,20 @@
-""" API endpoints for admin controls """
+"""API endpoints for admin controls"""
+
 import gzip
 import json
 from io import BytesIO
 
-from paste.httpheaders import CONTENT_DISPOSITION  # pylint: disable=E0611
+from paste.httpheaders import CONTENT_DISPOSITION
 from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.response import FileIter
 from pyramid.view import view_config, view_defaults
-from pyramid_duh import argify
 
+from pypicloud.params import use_params
 from pypicloud.route import AdminResource
 
 
 @view_defaults(context=AdminResource, subpath=(), permission="admin", renderer="json")
-class AdminEndpoints(object):
-
+class AdminEndpoints:
     """Collection of admin endpoints"""
 
     def __init__(self, request):
@@ -43,8 +43,8 @@ class AdminEndpoints(object):
         return self.request.access.user_data(username)
 
     @view_config(name="user", subpath=("username/*"), request_method="PUT")
-    @argify
-    def create_user(self, password):
+    @use_params
+    def create_user(self, password: str):
         """Create a new user"""
         username = self.request.named_subpaths["username"]
         self.request.access.register(username, password)
@@ -66,8 +66,8 @@ class AdminEndpoints(object):
         return self.request.response
 
     @view_config(name="user", subpath=("username/*", "admin"), request_method="POST")
-    @argify
-    def set_admin_status(self, admin):
+    @use_params
+    def set_admin_status(self, admin: bool):
         """Set a user to be or not to be an admin"""
         username = self.request.named_subpaths["username"]
         self.request.access.set_user_admin(username, admin)
@@ -98,7 +98,7 @@ class AdminEndpoints(object):
         """Create a group"""
         group = self.request.named_subpaths["group"]
         if group in ("everyone", "authenticated"):
-            return HTTPBadRequest("'%s' is a reserved name" % group)
+            return HTTPBadRequest(f"'{group}' is a reserved name")
         self.request.access.create_group(group)
         return self.request.response
 
@@ -165,8 +165,8 @@ class AdminEndpoints(object):
         return self.request.response
 
     @view_config(name="register", request_method="POST")
-    @argify
-    def toggle_allow_register(self, allow):
+    @use_params
+    def toggle_allow_register(self, allow: bool):
         """Allow or disallow user registration"""
         self.request.access.set_allow_register(allow)
         return self.request.response

@@ -1,15 +1,18 @@
-""" Tools and resources for traversal routing """
+"""Tools and resources for traversal routing"""
+
 import functools
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
+
+type ResourceFactory = Callable[[Any], Any]
 
 
-class IStaticResource(object):
-
+class IStaticResource:
     """Simple resource base class for static-mapping of paths"""
 
     __name__ = ""
     __parent__ = None
-    subobjects = {}  # type: Dict[str, Callable[[Any], Any]]
+    subobjects: dict[str, ResourceFactory] = {}
 
     def __init__(self, request):
         self.request = request
@@ -21,8 +24,7 @@ class IStaticResource(object):
         return child
 
 
-class IResourceFactory(object):
-
+class IResourceFactory:
     """Resource that generates child resources from a factory"""
 
     __name__ = ""
@@ -35,14 +37,13 @@ class IResourceFactory(object):
         self.request = request
 
     def __getitem__(self, name):
-        child = self.__factory__(name)  # pylint: disable=E1128
+        child = self.__factory__(name)
         child.__name__ = name
         child.__parent__ = self
         return child
 
 
-class SimpleResource(object):
-
+class SimpleResource:
     """Resource for simple pip calls"""
 
     def __init__(self, request):
@@ -55,8 +56,7 @@ class SimpleResource(object):
         return child
 
 
-class SimplePackageResource(object):
-
+class SimplePackageResource:
     """Resource for requesting simple endpoint package versions"""
 
     __parent__ = None
@@ -69,20 +69,18 @@ class SimplePackageResource(object):
 
 
 class APIPackagingResource(IResourceFactory):
-
     """Resource for api package queries"""
 
     def __init__(self, request):
-        super(APIPackagingResource, self).__init__(request)
+        super().__init__(request)
         self.__factory__ = functools.partial(APIPackageResource, self.request)
 
 
 class APIPackageResource(IResourceFactory):
-
     """Resource for requesting package versions"""
 
     def __init__(self, request, name):
-        super(APIPackageResource, self).__init__(request)
+        super().__init__(request)
         self.name = name
         self.__factory__ = functools.partial(
             APIPackageFileResource, self.request, self.name
@@ -90,8 +88,7 @@ class APIPackageResource(IResourceFactory):
         self.__acl__ = request.access.get_acl(self.name)
 
 
-class APIPackageFileResource(object):
-
+class APIPackageFileResource:
     """Resource for api endpoints dealing with a single package version"""
 
     __parent__ = None
@@ -104,24 +101,20 @@ class APIPackageFileResource(object):
 
 
 class APIResource(IStaticResource):
-
     """Resource for api calls"""
 
     subobjects = {"package": APIPackagingResource}
 
 
 class AdminResource(IStaticResource):
-
     """Resource for admin calls"""
 
 
 class PackagesResource(IStaticResource):
-
     """Resource for cleaner buildout config"""
 
 
-class AccountResource(object):
-
+class AccountResource:
     """Resource for login/logout endpoints"""
 
     __name__ = ""
@@ -132,7 +125,6 @@ class AccountResource(object):
 
 
 class Root(IStaticResource):
-
     """Root context for PyPI Cloud"""
 
     subobjects = {
@@ -145,7 +137,7 @@ class Root(IStaticResource):
     }
 
     def __init__(self, request):
-        super(Root, self).__init__(request)
+        super().__init__(request)
         self.__acl__ = request.access.ROOT_ACL
 
     def __getitem__(self, name):

@@ -1,18 +1,18 @@
-""" Model objects """
+"""Model objects"""
+
 import re
+from datetime import UTC, datetime
 from functools import total_ordering
 
-import pkg_resources
+from packaging.version import Version, parse
 
-from .dateutil import UTC, utcnow
 from .util import normalize_name
 
 METADATA_FIELDS = ["requires_python", "summary", "hash_sha256", "hash_md5", "uploader"]
 
 
 @total_ordering
-class Package(object):
-
+class Package:
     """
     Representation of a versioned package
 
@@ -43,7 +43,7 @@ class Package(object):
         if last_modified is not None:
             self.last_modified = last_modified
         else:
-            self.last_modified = utcnow()
+            self.last_modified = datetime.now(UTC)
         if self.last_modified.tzinfo is None:
             self.last_modified = self.last_modified.replace(tzinfo=UTC)
         # Disallow empty string
@@ -56,11 +56,11 @@ class Package(object):
         return request.db.get_url(self)
 
     @property
-    def parsed_version(self):
-        """Parse and cache the version using pkg_resources"""
+    def parsed_version(self) -> Version:
+        """The version parsed into a comparable object, cached after the first read."""
         # Use getattr because __init__ isn't called by some ORMs.
         if getattr(self, "_parsed_version", None) is None:
-            self._parsed_version = pkg_resources.parse_version(self.version)
+            self._parsed_version = parse(self.version)
         return self._parsed_version
 
     @property
@@ -106,7 +106,7 @@ class Package(object):
         return self.__str__()
 
     def __str__(self):
-        return "Package(%s)" % self.filename
+        return f"Package({self.filename})"
 
     def __json__(self, request):
         return {
@@ -117,12 +117,4 @@ class Package(object):
             "url": self.get_url(request),
             "summary": self.summary,
             "metadata": self.get_metadata(),
-        }
-
-    def search_summary(self):
-        """Data to return from a pip search"""
-        return {
-            "name": self.name,
-            "summary": self.summary or "",  # May be None
-            "version": self.version,
         }

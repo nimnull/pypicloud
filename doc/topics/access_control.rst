@@ -95,9 +95,10 @@ the default.
 ~~~~~~~~~~~~~~~
 **Argument:** str, optional
 
-The default password hash to use. See the passlib docs for `choosing a hash
-<https://passlib.readthedocs.io/en/stable/narr/quickstart.html>`__.  Defaults to
-``sha512_crypt`` on 64 bit systems and ``sha256_crypt`` on 32 bit systems.
+The password hash to write. Either ``argon2`` or ``bcrypt``; anything else,
+including the scheme names pypicloud 1.x accepted, falls back to ``argon2``.
+Defaults to ``argon2`` (argon2id). Both schemes are always verified, so a
+deployment can switch between them without invalidating stored passwords.
 
 Note this only matters for auth backends that allow dynamic user registration.
 If you are generating hashes for your config file with
@@ -109,11 +110,9 @@ If you are generating hashes for your config file with
 ~~~~~~~~~~~~~~~
 **Argument:** int, optional
 
-The number of rounds to use when hashing passwords. See PassLib's docs on
-`choosing rounds values
-<http://passlib.readthedocs.io/en/stable/narr/hash-tutorial.html#choosing-the-right-rounds-value>`__.
-The default rounds chosen by pypicloud are *significantly lower* than PassLib
-recommends; see :ref:`passlib` for why.
+The cost of hashing a password: bcrypt's cost factor, or argon2's time cost.
+Leave it out to use the defaults of the hashing library, which are chosen to be
+safe for interactive logins.
 
 Note this only matters for auth backends that allow dynamic user registration.
 If you are generating hashes for your config file with

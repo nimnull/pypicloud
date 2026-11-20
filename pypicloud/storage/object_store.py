@@ -1,7 +1,9 @@
-""" Store packages in S3 """
+"""Store packages in S3"""
+
 import logging
 from binascii import hexlify
 from hashlib import md5
+from typing import override
 
 from pyramid.httpexceptions import HTTPFound
 from pyramid.settings import asbool
@@ -15,7 +17,6 @@ LOG = logging.getLogger(__name__)
 
 
 class ObjectStoreStorage(IStorage):
-
     """Storage backend base class containing code that is common between
     supported object stores (S3 / GCS)
     """
@@ -34,9 +35,9 @@ class ObjectStoreStorage(IStorage):
         storage_class=None,
         region_name=None,
         public_url=False,
-        **kwargs
+        **kwargs,
     ):
-        super(ObjectStoreStorage, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.expire_after = expire_after
         self.bucket_prefix = bucket_prefix
         self.prepend_hash = prepend_hash
@@ -69,8 +70,9 @@ class ObjectStoreStorage(IStorage):
         return {}
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(ObjectStoreStorage, cls).configure(settings)
+        kwargs = super().configure(settings)
         kwargs["expire_after"] = int(settings.get("storage.expire_after", 60 * 60 * 24))
         kwargs["bucket_prefix"] = settings.get("storage.prefix", "")
         kwargs["prepend_hash"] = asbool(settings.get("storage.prepend_hash", True))
@@ -87,7 +89,7 @@ class ObjectStoreStorage(IStorage):
         """Calculates the path of a package"""
         path = package.name + "/" + package.filename
         if self.prepend_hash:
-            m = md5()
+            m = md5(usedforsecurity=False)
             m.update(package.filename.encode("utf-8"))
             prefix = hexlify(m.digest()).decode("utf-8")[:4]
             path = prefix + "/" + path
@@ -100,15 +102,18 @@ class ObjectStoreStorage(IStorage):
             package.data["path"] = self.bucket_prefix + filename
         return package.data["path"]
 
+    @override
     def get_url(self, package):
         if self.redirect_urls:
-            return super(ObjectStoreStorage, self).get_url(package)
+            return super().get_url(package)
         else:
             return self._generate_url(package)
 
+    @override
     def download_response(self, package):
         return HTTPFound(location=self._generate_url(package))
 
+    @override
     def open(self, package):
         url = self._generate_url(package)
         return _open(url, "rb", compression="disable")

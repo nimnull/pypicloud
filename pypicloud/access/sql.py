@@ -1,4 +1,7 @@
-""" Access backend for storing permissions in using SQLAlchemy """
+"""Access backend for storing permissions in using SQLAlchemy"""
+
+from typing import override
+
 import zope.sqlalchemy
 from pyramid.path import DottedNameResolver
 from sqlalchemy import (
@@ -8,19 +11,27 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    delete,
     engine_from_config,
-    orm,
+    select,
 )
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import backref, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+)
 
 from pypicloud.util import EnvironSettings
 
 from .base import IMutableAccessBackend
 
-# pylint: disable=C0103,W0231
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base for the access-control tables"""
+
 
 association_table = Table(
     "pypicloud_user_groups",
@@ -38,16 +49,14 @@ association_table = Table(
         primary_key=True,
     ),
 )
-# pylint: enable=C0103
 
 
 class KeyVal(Base):
-
     """Simple model for storing key-value pairs"""
 
     __tablename__ = "pypicloud_keyvals"
-    key = Column(String(length=255), primary_key=True)
-    value = Column(Text())
+    key: Mapped[str] = mapped_column(String(length=255), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text())
 
     def __init__(self, key, value):
         self.key = key
@@ -55,20 +64,21 @@ class KeyVal(Base):
 
 
 class User(Base):
-
     """User record"""
 
     __tablename__ = "pypicloud_users"
-    username = Column(String(length=255), primary_key=True)
-    password = Column("password", Text(), nullable=False)
-    admin = Column(Boolean(), nullable=False)
-    pending = Column(Boolean(), nullable=False)
-    groups = orm.relationship(
-        "Group",
+    username: Mapped[str] = mapped_column(String(length=255), primary_key=True)
+    password: Mapped[str] = mapped_column("password", Text(), nullable=False)
+    admin: Mapped[bool] = mapped_column(Boolean(), nullable=False)
+    pending: Mapped[bool] = mapped_column(Boolean(), nullable=False)
+    groups: Mapped[set[Group]] = relationship(
         secondary=association_table,
         cascade="all",
         collection_class=set,
-        backref=backref("users", collection_class=set),
+        back_populates="users",
+    )
+    permissions: Mapped[list[UserPermission]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
 
     def __init__(self, username, password, pending=True):
@@ -81,11 +91,16 @@ class User(Base):
 
 
 class Group(Base):
-
     """Group record"""
 
     __tablename__ = "pypicloud_groups"
-    name = Column(String(length=255), primary_key=True)
+    name: Mapped[str] = mapped_column(String(length=255), primary_key=True)
+    users: Mapped[set[User]] = relationship(
+        secondary=association_table, collection_class=set, back_populates="groups"
+    )
+    permissions: Mapped[list[GroupPermission]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
 
     def __init__(self, name):
         self.name = name
@@ -94,13 +109,12 @@ class Group(Base):
 
 
 class Permission(Base):
-
     """Base class for user and group permissions"""
 
     __abstract__ = True
-    package = Column(String(length=255), primary_key=True)
-    read = Column(Boolean())
-    write = Column(Boolean())
+    package: Mapped[str] = mapped_column(String(length=255), primary_key=True)
+    read: Mapped[bool | None] = mapped_column(Boolean())
+    write: Mapped[bool | None] = mapped_column(Boolean())
 
     def __init__(self, package, read, write):
         self.package = package
@@ -119,43 +133,36 @@ class Permission(Base):
 
 
 class UserPermission(Permission):
-
     """Permissions for a user on a package"""
 
     __tablename__ = "pypicloud_user_permissions"
-    username = Column(
+    username: Mapped[str] = mapped_column(
         String(length=255),
         ForeignKey(User.username, ondelete="CASCADE"),
         primary_key=True,
     )
-    user = orm.relationship(
-        "User", backref=backref("permissions", cascade="all, delete-orphan")
-    )
+    user: Mapped[User] = relationship(back_populates="permissions")
 
     def __init__(self, package, username, read=False, write=False):
-        super(UserPermission, self).__init__(package, read, write)
+        super().__init__(package, read, write)
         self.username = username
 
 
 class GroupPermission(Permission):
-
     """Permissions for a group on a package"""
 
     __tablename__ = "pypicloud_group_permissions"
-    groupname = Column(
+    groupname: Mapped[str] = mapped_column(
         String(length=255), ForeignKey(Group.name, ondelete="CASCADE"), primary_key=True
     )
-    group = orm.relationship(
-        "Group", backref=backref("permissions", cascade="all, delete-orphan")
-    )
+    group: Mapped[Group] = relationship(back_populates="permissions")
 
     def __init__(self, package, groupname, read=False, write=False):
-        super(GroupPermission, self).__init__(package, read, write)
+        super().__init__(package, read, write)
         self.groupname = groupname
 
 
 class SQLAccessBackend(IMutableAccessBackend):
-
     """
     This backend allows you to store all user and package permissions in a SQL
     database
@@ -163,7 +170,7 @@ class SQLAccessBackend(IMutableAccessBackend):
     """
 
     def __init__(self, request=None, dbmaker=None, **kwargs):
-        super(SQLAccessBackend, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self._db = None
         self._dbmaker = dbmaker
 
@@ -176,103 +183,121 @@ class SQLAccessBackend(IMutableAccessBackend):
                 zope.sqlalchemy.register(self._db, transaction_manager=self.request.tm)
         return self._db
 
+    def _get(self, model, **filters):
+        """The first row of a model matching the filters, or None"""
+        return self.db.scalars(select(model).filter_by(**filters)).first()
+
+    def _select(self, model, **filters):
+        """Every row of a model matching the filters"""
+        return self.db.scalars(select(model).filter_by(**filters))
+
     @classmethod
+    @override
     def configure(cls, settings: EnvironSettings):
-        kwargs = super(SQLAccessBackend, cls).configure(settings)
+        kwargs = super().configure(settings)
         settings.read_prefix_from_environ("auth.db.")
         engine_opts = {}
         poolclass = settings.pop("auth.db.poolclass", None)
         if poolclass is not None:
             resolver = DottedNameResolver(__name__)
             engine_opts["poolclass"] = resolver.maybe_resolve(poolclass)
-        engine = engine_from_config(settings, prefix="auth.db.", **engine_opts)
+        engine = engine_from_config(dict(settings), prefix="auth.db.", **engine_opts)
         kwargs["dbmaker"] = sessionmaker(bind=engine)
         # Create SQL schema if not exists
         Base.metadata.create_all(bind=engine)
         return kwargs
 
     @classmethod
+    @override
     def postfork(cls, **kwargs):
         # Have to dispose of connections after uWSGI forks,
         # otherwise they'll get corrupted.
         kwargs["dbmaker"].kw["bind"].dispose()
 
+    @override
     def allow_register(self):
-        ret = self.db.query(KeyVal).filter_by(key="allow_register").first()
+        ret = self._get(KeyVal, key="allow_register")
         return ret is not None and ret.value == "true"
 
+    @override
     def set_allow_register(self, allow):
         if allow:
             k = KeyVal("allow_register", "true")
             self.db.merge(k)
         else:
-            self.db.query(KeyVal).filter_by(key="allow_register").delete()
+            self.db.execute(delete(KeyVal).where(KeyVal.key == "allow_register"))
 
+    @override
     def _get_password_hash(self, username):
-        user = self.db.query(User).filter_by(username=username).first()
+        user = self._get(User, username=username)
         if user:
             return user.password
 
+    @override
     def groups(self, username=None):
         if username is None:
-            query = self.db.query(Group)
-            return [g.name for g in query]
+            return [g.name for g in self.db.scalars(select(Group))]
         else:
-            user = self.db.query(User).filter_by(username=username).first()
+            user = self._get(User, username=username)
             if user is None:
                 return []
             return [g.name for g in user.groups]
 
+    @override
     def group_members(self, group):
-        g = self.db.query(Group).filter_by(name=group).first()
+        g = self._get(Group, name=group)
         if not g:
             return []
         return [u.username for u in g.users]
 
+    @override
     def is_admin(self, username):
-        user = self.db.query(User).filter_by(username=username).first()
+        user = self._get(User, username=username)
         return user and user.admin
 
+    @override
     def group_permissions(self, package):
-        query = self.db.query(GroupPermission).filter_by(package=package)
+        query = self._select(GroupPermission, package=package)
         perms = {}
 
         for perm in query:
             perms[perm.groupname] = perm.permissions
         return perms
 
+    @override
     def user_permissions(self, package):
-        query = self.db.query(UserPermission).filter_by(package=package)
+        query = self._select(UserPermission, package=package)
         perms = {}
         for perm in query:
             perms[perm.username] = perm.permissions
         return perms
 
+    @override
     def user_package_permissions(self, username):
-        query = self.db.query(UserPermission).filter_by(username=username)
+        query = self._select(UserPermission, username=username)
         packages = []
         for perm in query:
             packages.append({"package": perm.package, "permissions": perm.permissions})
         return packages
 
+    @override
     def group_package_permissions(self, group):
-        query = self.db.query(GroupPermission).filter_by(groupname=group)
+        query = self._select(GroupPermission, groupname=group)
         packages = []
         for perm in query:
             packages.append({"package": perm.package, "permissions": perm.permissions})
         return packages
 
+    @override
     def user_data(self, username=None):
         if username is None:
-            query = self.db.query(User).filter_by(pending=False)
+            query = self._select(User, pending=False)
             users = []
             for user in query:
                 users.append({"username": user.username, "admin": user.admin})
             return users
         else:
-            user = (
-                self.db.query(User).filter_by(username=username, pending=False).first()
-            )
+            user = self._get(User, username=username, pending=False)
             if user is not None:
                 return {
                     "username": user.username,
@@ -280,60 +305,66 @@ class SQLAccessBackend(IMutableAccessBackend):
                     "groups": [g.name for g in user.groups],
                 }
 
+    @override
     def need_admin(self):
-        return self.db.query(User).filter_by(admin=True).first() is None
+        return self._get(User, admin=True) is None
 
+    @override
     def _register(self, username, password):
         user = User(username, password)
         self.db.add(user)
 
+    @override
     def pending_users(self):
-        query = self.db.query(User).filter_by(pending=True)
-        return [u.username for u in query]
+        return [u.username for u in self._select(User, pending=True)]
 
+    @override
     def approve_user(self, username):
-        user = self.db.query(User).filter_by(username=username).first()
+        user = self._get(User, username=username)
         if user is not None:
             user.pending = False
 
+    @override
     def _set_password_hash(self, username, password_hash):
-        user = self.db.query(User).filter_by(username=username).first()
+        user = self._get(User, username=username)
         if user is not None:
             user.password = password_hash
 
+    @override
     def delete_user(self, username):
-        self.db.query(User).filter_by(username=username).delete()
+        self.db.execute(delete(User).where(User.username == username))
         clause = association_table.c.username == username
-        self.db.execute(association_table.delete(clause))
+        self.db.execute(association_table.delete().where(clause))
 
+    @override
     def set_user_admin(self, username, admin):
-        user = self.db.query(User).filter_by(username=username).first()
+        user = self._get(User, username=username)
         if user is not None:
             user.admin = admin
 
+    @override
     def edit_user_group(self, username, group, add):
-        user = self.db.query(User).filter_by(username=username).first()
-        groupobj = self.db.query(Group).filter_by(name=group).first()
+        user = self._get(User, username=username)
+        groupobj = self._get(Group, name=group)
         if user is not None and groupobj is not None:
             if add:
                 user.groups.add(groupobj)
             else:
                 user.groups.remove(groupobj)
 
+    @override
     def create_group(self, group):
         self.db.add(Group(group))
 
+    @override
     def delete_group(self, group):
-        self.db.query(Group).filter_by(name=group).delete()
+        self.db.execute(delete(Group).where(Group.name == group))
         clause = association_table.c.group == group
-        self.db.execute(association_table.delete(clause))
+        self.db.execute(association_table.delete().where(clause))
 
+    @override
     def edit_user_permission(self, package_name, username, perm, add):
-        record = (
-            self.db.query(UserPermission)
-            .filter_by(package=package_name, username=username)
-            .first()
-        )
+        record = self._get(UserPermission, package=package_name, username=username)
         if record is None:
             if not add:
                 return
@@ -344,16 +375,13 @@ class SQLAccessBackend(IMutableAccessBackend):
         elif perm == "write":
             record.write = add
         else:
-            raise ValueError("Unrecognized permission '%s'" % perm)
+            raise ValueError(f"Unrecognized permission '{perm}'")
         if not record.read and not record.write:
             self.db.delete(record)
 
+    @override
     def edit_group_permission(self, package_name, group, perm, add):
-        record = (
-            self.db.query(GroupPermission)
-            .filter_by(package=package_name, groupname=group)
-            .first()
-        )
+        record = self._get(GroupPermission, package=package_name, groupname=group)
         if record is None:
             if not add:
                 return
@@ -364,13 +392,14 @@ class SQLAccessBackend(IMutableAccessBackend):
         elif perm == "write":
             record.write = add
         else:
-            raise ValueError("Unrecognized permission '%s'" % perm)
+            raise ValueError(f"Unrecognized permission '{perm}'")
         if not record.read and not record.write:
             self.db.delete(record)
 
+    @override
     def check_health(self):
         try:
-            self.db.query(KeyVal).first()
+            self.db.scalars(select(KeyVal).limit(1)).first()
         except SQLAlchemyError as e:
             return (False, str(e))
         else:

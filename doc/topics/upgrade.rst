@@ -19,6 +19,14 @@ work if you have ``db.graceful_reload = true``).
 
 Access Control
 --------------
+
+.. warning::
+
+    Upgrading from 1.x to 2.0 invalidates every stored password. 2.0 cannot
+    verify the hashes that 1.x wrote, and an export taken before the upgrade
+    carries those same hashes, so importing it does not bring the passwords
+    back. Read the upgrade notes in the changelog before you start.
+
 If something has changed in the formatting of the access control between
 versions, there should be a note inside the changelog. If so, you will need to
 export your current data and import it to the new version.

@@ -1,13 +1,12 @@
-""" Tests for commandline scripts """
-import unittest
+"""Tests for commandline scripts"""
 
-from mock import patch
+import unittest
+from unittest.mock import patch
 
 from pypicloud import scripts
 
 
 class TestScripts(unittest.TestCase):
-
     """Tests for commandline scripts"""
 
     @patch.object(scripts, "getpass")

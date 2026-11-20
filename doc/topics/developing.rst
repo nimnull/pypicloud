@@ -7,29 +7,37 @@ To get set up:
 
     $ git clone git@github.com:stevearc/pypicloud
     $ cd pypicloud
-    $ virtualenv pypicloud_env
-    $ . pypicloud_env/bin/activate
-    $ pip install -r requirements_dev.txt
+    $ uv sync --all-extras
 
-Run ``ppc-make-config -d development.ini`` to create a developer config file.
+Run ``uv run ppc-make-config -d development.ini`` to create a developer config file.
 
 Now you can run the server with
 
 .. code-block:: bash
 
-    $ pserve --reload development.ini
+    $ uv run pserve --reload development.ini
 
-The unit tests require a redis server to be running on port 6379, MySQL on port
-3306, and Postgres on port 5432. If you have docker installed you can use the
-``run-test-services.sh`` script to start all the necessary servers. Run unit
-tests with:
-
-.. code-block:: bash
-
-    $ python setup.py nosetests
-
-or:
+The unit tests need redis, MySQL, Postgres, OpenLDAP, DynamoDB Local, azurite
+and fake-gcs-server. Tests whose service is unreachable skip themselves. The
+``compose`` script starts every service in docker and runs the suite inside the
+project container:
 
 .. code-block:: bash
 
-    $ tox
+    $ ./compose test
+
+To run the tests against services you started yourself:
+
+.. code-block:: bash
+
+    $ uv run pytest
+
+Lint and type checks:
+
+.. code-block:: bash
+
+    $ uv run ruff check pypicloud tests scripts
+    $ uv run ruff format --check pypicloud tests scripts
+    $ uv run mypy pypicloud
+
+Format the code with ``uv run ruff format pypicloud tests scripts``.

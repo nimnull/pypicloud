@@ -1,8 +1,10 @@
-""" Store packages in Azure Blob Storage """
+"""Store packages in Azure Blob Storage"""
+
 import logging
 import os
 import posixpath
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import override
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
@@ -10,7 +12,6 @@ from pyramid.httpexceptions import HTTPFound
 from pyramid.settings import asbool
 from smart_open import open as _open
 
-from pypicloud.dateutil import utcnow
 from pypicloud.models import Package
 from pypicloud.util import stream_file
 
@@ -35,7 +36,7 @@ class AzureBlobStorage(IStorage):
         storage_account_url=None,
         storage_container_name=None,
     ):
-        super(AzureBlobStorage, self).__init__(request)
+        super().__init__(request)
 
         self.expire_after = expire_after
         self.path_prefix = path_prefix
@@ -45,7 +46,7 @@ class AzureBlobStorage(IStorage):
         self.storage_container_name = storage_container_name
         self.azure_storage_account_url = (
             storage_account_url
-            or "https://{}.blob.core.windows.net".format(storage_account_name)
+            or f"https://{storage_account_name}.blob.core.windows.net"
         )
         self.blob_service_client = BlobServiceClient(
             account_url=self.azure_storage_account_url,
@@ -59,8 +60,9 @@ class AzureBlobStorage(IStorage):
         )
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(AzureBlobStorage, cls).configure(settings)
+        kwargs = super().configure(settings)
         kwargs["expire_after"] = int(settings.get("storage.expire_after", 60 * 60 * 24))
         kwargs["path_prefix"] = settings.get("storage.prefix", "")
         kwargs["redirect_urls"] = asbool(settings.get("storage.redirect_urls", True))
@@ -96,21 +98,18 @@ class AzureBlobStorage(IStorage):
             blob_name=path,
             account_key=self.storage_account_key,
             permission=BlobSasPermissions(read=True),
-            expiry=utcnow() + timedelta(seconds=self.expire_after),
+            expiry=datetime.now(UTC) + timedelta(seconds=self.expire_after),
             protocol="https",
         )
 
-        url = "{}/{}/{}?{}".format(
-            self.azure_storage_account_url,
-            self.storage_container_name,
-            path,
-            url_params,
-        )
+        url = f"{self.azure_storage_account_url}/{self.storage_container_name}/{path}?{url_params}"
         return url
 
+    @override
     def download_response(self, package):
         return HTTPFound(location=self._generate_url(package))
 
+    @override
     def list(self, factory=Package):
         # List does not return metadata :(
         for blob_properties in self.container_client.list_blobs(
@@ -141,6 +140,7 @@ class AzureBlobStorage(IStorage):
     def get_uri(self, package):
         return f"azure://{self.storage_container_name}/{self.get_path(package)}"
 
+    @override
     def upload(self, package, datastream):
         metadata = package.get_metadata()
         metadata["name"] = package.name
@@ -158,11 +158,13 @@ class AzureBlobStorage(IStorage):
             for chunk in stream_file(datastream):
                 fp.write(chunk)  # multipart upload
 
+    @override
     def delete(self, package):
         path = self.get_path(package)
         blob_client = self.container_client.get_blob_client(blob=path)
         blob_client.delete_blob()
 
+    @override
     def check_health(self):
         try:
             self.container_client.get_blob_client(
@@ -174,6 +176,7 @@ class AzureBlobStorage(IStorage):
             return False, str(e)
         return True, ""
 
+    @override
     def open(self, package):
         """Overwrite open method to re-use client instead of using signed url."""
         return _open(

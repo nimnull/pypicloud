@@ -2,6 +2,138 @@ Changelog
 =========
 If you are upgrading an existing installation, read :ref:`the instructions <upgrade>`
 
+Unreleased
+----------
+This is a breaking release. It requires Python 3.14, it replaces four
+unmaintained dependencies, and **every stored password has to be set again**.
+Read `Upgrade notes`_ before deploying it.
+
+Runtime
+~~~~~~~
+* **Breaking**: Python 3.14 is required. Support for 3.7 through 3.13 is dropped
+* **Breaking**: passwords are hashed with argon2id through pwdlib instead of
+  passlib. ``auth.scheme`` accepts ``argon2`` and ``bcrypt``; any other value,
+  including the scheme names 1.x accepted, falls back to argon2id. ``auth.rounds``
+  now sets argon2's time cost or bcrypt's cost factor
+* **Breaking**: hashes written by pypicloud 1.x (``$6$``, ``$5$``,
+  ``$pbkdf2-sha256$``, ``$pbkdf2-sha512$``) no longer verify. A login against one
+  is refused and logs a warning naming the user
+* **Breaking**: view parameters are validated against their annotations with
+  pydantic (``pypicloud.params.use_params``), replacing ``argify``. Values are
+  coerced to the annotated type, so ``?verbose=false`` is now false instead of
+  true; a missing or malformed parameter still answers 400, with a message of
+  the form ``"<parameter>: <reason>"``
+* **Breaking**: the ``param`` request method is removed. Read ``request.params``
+* **Breaking**: the XML-RPC endpoints at ``/pypi`` and ``/pypi/`` are removed,
+  and with them ``pip search`` against pypicloud. ``ICache.search()``,
+  ``SQLCache.search()`` and ``Package.search_summary()`` go with them. PyPI
+  disabled its own XML-RPC search API in 2021
+* **Breaking**: ``pypicloud.dateutil`` is removed. Use ``datetime.UTC``,
+  ``datetime.now(UTC)`` and ``datetime.fromtimestamp(ts, UTC)``
+* **Breaking**: ``FileStorage.get_path()``, ``get_metadata_path()`` and
+  ``path_to_meta_path()`` return ``pathlib.Path`` instead of ``str``
+
+Dependencies
+~~~~~~~~~~~~
+* Drop ``passlib`` (last released 2020) for ``pwdlib``. passlib's bcrypt backend
+  no longer works against bcrypt 4.1 and later
+* Drop ``flywheel`` and ``dynamo3`` (both last released 2020). The DynamoDB cache
+  talks to AWS through boto3, which is already a core requirement, so the
+  ``dynamo`` extra installs nothing. Items keep the format flywheel wrote, a
+  NUMBER timestamp and a MAP of metadata, so existing tables are read and written
+  as before
+* Drop ``pyramid_duh`` (last released 2014), which called the removed
+  ``inspect.getargspec``. The ``addslash`` decorator and the ``subpath`` view
+  predicate now live in ``pypicloud.duh``
+* Drop ``pyramid_rpc`` (last released 2016), which was the last dependency
+  importing the deprecated ``pkg_resources``
+* Drop ``pkg_resources``: versions parse with ``packaging`` and the config
+  template loads with ``importlib.resources``
+* Require and declare SQLAlchemy 2.1. The SQL cache and access backends import it
+  directly instead of relying on ``zope.sqlalchemy`` to pull it in
+* Require ``psycopg`` (version 3) instead of ``psycopg2`` for Postgres, following
+  SQLAlchemy 2.1's default driver for ``postgresql://``
+
+Deployment
+~~~~~~~~~~
+* Ship a production ``Dockerfile``: uWSGI 2.0.31 built against CPython 3.14,
+  running as an unprivileged user, reading ``/etc/pypicloud/config.ini`` and
+  listening on port 8080
+* ``ppc-create-s3-sync`` and ``ppc-build-lambda-bundle`` are unsupported. They
+  build a Lambda bundle around virtualenv 15.1.0 from 2017, no test covers them,
+  and both now say so when they run
+* An unrecognised ``auth.scheme`` logs a warning naming the scheme it hashes
+  with instead of changing algorithm silently
+
+Internals
+~~~~~~~~~
+* Define the SQL models with the SQLAlchemy 2.0 declarative API
+  (``DeclarativeBase``, ``Mapped``, ``mapped_column``, ``back_populates``) and
+  read them through ``select()`` instead of the legacy ``Query`` API
+* Adopt the idioms of each release through 3.14: PEP 585 and PEP 604
+  annotations, ``match`` for backend dispatch, ``datetime.UTC``, ``typing.Self``,
+  PEP 695 type parameters, ``@typing.override`` on every backend implementation,
+  ``pathlib.Path.walk()`` and ``io.Reader`` in the file storage backend
+* Declare the package with ``pyproject.toml`` and build it with hatchling.
+  ``setup.py``, ``setup.cfg``, ``MANIFEST.in`` and the three ``requirements*.txt``
+  files are gone; test, docs and dev dependencies live in dependency groups
+* Release with ``bump-my-version`` instead of ``bumpversion``, which has not
+  been released since 2018. Its configuration moved from ``.bumpversion.cfg``
+  into ``[tool.bumpversion]``, and the version is now declared once, in
+  ``pypicloud/__init__.py``, which hatchling reads for the package metadata
+* Develop with uv instead of pip and tox. ``uv sync --all-extras`` sets up a
+  checkout, ``./compose test`` runs the suite against the service containers,
+  and ``uv.lock`` pins what CI installs
+* Run the test suite with pytest, and lint with ruff. ``nose``, ``mock``,
+  ``black``, ``isort``, ``pylint``, ``tox`` and ``sqlalchemy-stubs`` are no
+  longer development dependencies
+* The DynamoDB tests read ``DYNAMO_HOST`` and ``DYNAMO_PORT`` and skip when no
+  service answers; ``docker-compose`` runs DynamoDB Local as a service
+
+.. _upgrade-notes:
+
+Upgrade notes
+~~~~~~~~~~~~~
+**1. Run it on Python 3.14.** Earlier interpreters are not supported.
+
+**2. Reset every password.** This version cannot verify hashes written by
+pypicloud 1.x, so plan a window where logins fail for users you have not
+migrated. Pick one of:
+
+* *Config backend*: regenerate each hash and replace it in the config file.
+
+  .. code-block:: bash
+
+      $ ppc-gen-password            # prompts, prints an argon2id hash
+      $ ppc-gen-password -s bcrypt  # if you need the cheaper scheme
+
+* *SQL, Redis or DynamoDB backend*: an admin sets each password again through
+  the web interface or the API, or users re-register. Rows whose hash is still a
+  1.x hash refuse the login and log
+  ``Password of user '<name>' is hashed with a scheme that pypicloud no longer
+  supports``.
+* *LDAP or remote backend*: nothing to do. Those backends never stored hashes
+  here.
+
+A pre-upgrade export written with ``ppc-export`` carries 1.x hashes, so
+importing it after the upgrade restores passwords that will not verify. Export
+for a record if you like, but plan on setting the passwords again.
+
+**3. Check auth.scheme.** A config that names ``sha512_crypt``, ``sha256_crypt``,
+``pbkdf2_sha512`` or ``pbkdf2_sha256`` keeps starting, and now writes argon2id.
+Set it to ``argon2`` or ``bcrypt`` to say what you mean.
+
+**4. Budget for argon2's cost.** argon2id at the library defaults verifies in
+roughly 20ms and holds 64MB while it runs, against roughly 6ms and no
+measurable memory for 1.x's sha512_crypt default. pip sends credentials on every
+request, so a fleet feels both. ``auth.rounds = 1`` brings argon2 to about 7ms,
+and ``auth.scheme = bcrypt`` with ``auth.rounds = 7`` to about 5ms. See
+:ref:`password_hashing`
+
+**5. Rebuild nothing else.** The DynamoDB tables, the SQL schema and the storage
+backends are unchanged. The cache can be rebuilt at any time from the admin
+interface if you want to be sure.
+
 1.3.12 - 2022/12/29
 -------------------
 * Fix errors with the GCS backend (:pr:`320`)

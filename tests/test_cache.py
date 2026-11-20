@@ -1,32 +1,41 @@
-# -*- coding: utf-8 -*-
-""" Tests for database cache implementations """
+"""Tests for database cache implementations"""
+
 import calendar
 import os
 import unittest
+from datetime import UTC
 from io import BytesIO
+from unittest.mock import ANY, MagicMock, patch
 
 import redis
 import transaction
-from dynamo3 import Throughput
-from flywheel.fields.types import UTC
-from mock import ANY, MagicMock, patch
 from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from pypicloud.cache import ICache, RedisCache, SQLCache
-from pypicloud.cache.dynamo import DynamoCache, DynamoPackage, PackageSummary
+from pypicloud.cache.dynamo import (
+    BATCH_GET_SIZE,
+    DynamoCache,
+    DynamoPackage,
+    PackageSummary,
+    _iter_items,
+)
 from pypicloud.cache.sql import SQLPackage
 from pypicloud.storage import IStorage
 from pypicloud.util import EnvironSettings
 
 from . import DummyAccess, DummyCache, DummyStorage, make_package
-from .db_utils import get_mysql_url, get_postgres_url, get_sqlite_url
-
-# pylint: disable=W0707
+from .db_utils import (
+    clear_dynamo_table,
+    configure_dynamo_cache,
+    get_mysql_url,
+    get_postgres_url,
+    get_sqlite_url,
+    scan_packages,
+)
 
 
 class TestBaseCache(unittest.TestCase):
-
     """Tests for the caching base class"""
 
     def test_equality(self):
@@ -185,7 +194,6 @@ class TestBaseCache(unittest.TestCase):
 
 
 class TestSQLiteCache(unittest.TestCase):
-
     """Tests for the SQLAlchemy cache"""
 
     @classmethod
@@ -194,18 +202,18 @@ class TestSQLiteCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestSQLiteCache, cls).setUpClass()
+        super().setUpClass()
         db_url = cls.get_db_url()
         settings = EnvironSettings(
             {"pypi.storage": "tests.DummyStorage", "db.url": db_url}, {}
         )
         try:
             cls.kwargs = SQLCache.configure(settings)
-        except OperationalError:
-            raise unittest.SkipTest(f"Couldn't connect to database {db_url}")
+        except OperationalError as e:
+            raise unittest.SkipTest(f"Couldn't connect to database {db_url}") from e
 
     def setUp(self):
-        super(TestSQLiteCache, self).setUp()
+        super().setUp()
         transaction.begin()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
@@ -215,7 +223,7 @@ class TestSQLiteCache(unittest.TestCase):
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestSQLiteCache, self).tearDown()
+        super().tearDown()
         transaction.abort()
         self.sql.query(SQLPackage).delete()
         transaction.commit()
@@ -335,45 +343,7 @@ class TestSQLiteCache(unittest.TestCase):
         ]
         self.sql.add_all(pkgs)
         saved_pkgs = self.db.distinct()
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
-
-    def test_search_or(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=SQLPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=SQLPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=SQLPackage),
-            make_package("package", factory=SQLPackage),
-        ]
-        self.sql.add_all(pkgs)
-        criteria = {"name": ["mypkg"], "summary": ["mypkg"]}
-        packages = self.db.search(criteria, "or")
-        self.assertCountEqual(packages, pkgs[:-1])
-
-    def test_search_and(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=SQLPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=SQLPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=SQLPackage),
-            make_package("package", factory=SQLPackage),
-        ]
-        self.sql.add_all(pkgs)
-        criteria = {"name": ["my", "pkg"], "summary": ["this", "mypkg"]}
-        packages = self.db.search(criteria, "and")
-        self.assertCountEqual(packages, pkgs[:-1])
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_summary(self):
         """summary constructs per-package metadata summary"""
@@ -381,7 +351,7 @@ class TestSQLiteCache(unittest.TestCase):
         self.db.upload("pkg1-1.1.tar.gz", BytesIO(b"test1234"), "pkg1", "1.1")
         p1 = self.db.upload("pkg1a2.tar.gz", BytesIO(b"test1234"), "pkg1", "1.1.1a2")
         p2 = self.db.upload("pkg2.tar.gz", BytesIO(b"test1234"), "pkg2", "0.1dev2")
-        s1, s2 = self.db.summary()  # pylint: disable=E0632
+        s1, s2 = self.db.summary()
         # Order them correctly. assertCountEqual isn't playing nice in py2.6
         if s1["name"] == "pkg2":
             s1, s2 = s2, s1
@@ -431,7 +401,7 @@ class TestSQLiteCache(unittest.TestCase):
             """Throw an exception"""
             raise SQLAlchemyError("DB exception")
 
-        dbmock.query.side_effect = throw
+        dbmock.scalars.side_effect = throw
         ok, msg = self.db.check_health()
         self.assertFalse(ok)
 
@@ -453,12 +423,11 @@ class TestPostgresCache(TestSQLiteCache):
 
 
 class TestRedisCache(unittest.TestCase):
-
     """Tests for the redis cache"""
 
     @classmethod
     def extra_settings(cls):
-        return dict()
+        return {}
 
     @classmethod
     def get_redis_url(cls):
@@ -469,7 +438,7 @@ class TestRedisCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestRedisCache, cls).setUpClass()
+        super().setUpClass()
         redis_url = cls.get_redis_url()
 
         settings = {
@@ -483,17 +452,17 @@ class TestRedisCache(unittest.TestCase):
             cls.redis.flushdb()
         except redis.exceptions.ConnectionError:
             msg = f"Redis not found at {redis_url}"
-            setattr(cls, "setUp", lambda cls: unittest.TestCase.skipTest(cls, msg))
+            cls.setUp = lambda cls: unittest.TestCase.skipTest(cls, msg)
 
     def setUp(self):
-        super(TestRedisCache, self).setUp()
+        super().setUp()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
         self.db = RedisCache(self.request, **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestRedisCache, self).tearDown()
+        super().tearDown()
         self.redis.flushdb()
 
     def assert_in_redis(self, pkg):
@@ -502,7 +471,7 @@ class TestRedisCache(unittest.TestCase):
         data = self.redis.hgetall(self.db.redis_key(pkg.filename))
         dt = pkg.last_modified
         lm = calendar.timegm(dt.utctimetuple()) + dt.microsecond / 1000000.0
-        lm_str = ("%.6f" % lm).rstrip("0").rstrip(".")
+        lm_str = (f"{lm:.6f}").rstrip("0").rstrip(".")
         pkg_data = {
             "name": pkg.name,
             "version": pkg.version,
@@ -628,7 +597,7 @@ class TestRedisCache(unittest.TestCase):
             self.db.save(pkg)
         saved_pkgs = self.db.distinct()
 
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_delete_package(self):
         """Deleting the last package of a name removes from distinct()"""
@@ -643,46 +612,6 @@ class TestRedisCache(unittest.TestCase):
         self.assertEqual(saved_pkgs, ["mypkg2"])
         summaries = self.db.summary()
         self.assertEqual(len(summaries), 1)
-
-    def test_search_or(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=SQLPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=SQLPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=SQLPackage),
-            make_package("package", factory=SQLPackage),
-        ]
-        for pkg in pkgs:
-            self.db.save(pkg)
-        criteria = {"name": ["mypkg"], "summary": ["mypkg"]}
-        packages = self.db.search(criteria, "or")
-        self.assertCountEqual(packages, pkgs[:-1])
-
-    def test_search_and(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=SQLPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=SQLPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=SQLPackage),
-            make_package("package", factory=SQLPackage),
-        ]
-        for pkg in pkgs:
-            self.db.save(pkg)
-        criteria = {"name": ["my", "pkg"], "summary": ["this", "mypkg"]}
-        packages = self.db.search(criteria, "and")
-        self.assertCountEqual(packages, pkgs[:-1])
 
     def test_multiple_packages_same_version(self):
         """Can upload multiple packages that have the same version"""
@@ -755,7 +684,6 @@ class TestRedisCache(unittest.TestCase):
 
 
 class TestClusteredRedisCache(TestRedisCache):
-
     """Tests for the clustered redis cache"""
 
     @classmethod
@@ -773,56 +701,44 @@ class TestClusteredRedisCache(TestRedisCache):
 class TestDynamoCache(unittest.TestCase):
     """Tests for the DynamoCache"""
 
-    dynamo = None
-
     @classmethod
     def setUpClass(cls):
-        super(TestDynamoCache, cls).setUpClass()
-        host = cls.dynamo.host[cls.dynamo.host.index("//") + 2 :]
-        host, port = host.split(":")
-        settings = {
-            "pypi.storage": "tests.DummyStorage",
-            "db.region_name": "us-east-1",
-            "db.host": host,
-            "db.port": port,
-            "db.namespace": "test.",
-            "db.aws_access_key_id": "",
-            "db.aws_secret_access_key": "",
-        }
-        cls.kwargs = DynamoCache.configure(settings)
-        cls.engine = cls.kwargs["engine"]
+        super().setUpClass()
+        cls.kwargs = configure_dynamo_cache()
+        cls.packages = cls.kwargs["packages"]
+        cls.summaries = cls.kwargs["summaries"]
 
     @classmethod
     def tearDownClass(cls):
-        super(TestDynamoCache, cls).tearDownClass()
-        cls.engine.delete_schema()
+        super().tearDownClass()
+        cls.packages.delete()
+        cls.summaries.delete()
 
     def setUp(self):
-        super(TestDynamoCache, self).setUp()
+        super().setUp()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
         self.db = DynamoCache(self.request, **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestDynamoCache, self).tearDown()
-        for model in (DynamoPackage, PackageSummary):
-            self.engine.scan(model).delete()
+        super().tearDown()
+        clear_dynamo_table(self.packages, "filename")
+        clear_dynamo_table(self.summaries, "name")
 
     def _save_pkgs(self, *pkgs):
         """Save a DynamoPackage to the db"""
         for pkg in pkgs:
-            self.engine.save(pkg)
-            summary = PackageSummary(pkg)
-            self.engine.save(summary, overwrite=True)
+            self.packages.put_item(Item=pkg.to_item())
+            self.summaries.put_item(Item=PackageSummary(pkg).to_item())
 
     def test_upload(self):
         """upload() saves package and uploads to storage"""
         pkg = make_package(factory=DynamoPackage)
         self.db.upload(pkg.filename, BytesIO(b"test1234"), pkg.name, pkg.version)
-        count = self.engine.scan(DynamoPackage).count()
+        count = self.packages.scan()["Count"]
         self.assertEqual(count, 1)
-        saved_pkg = self.engine.scan(DynamoPackage).first()
+        saved_pkg = scan_packages(self.packages)[0]
         self.assertEqual(saved_pkg, pkg)
         self.storage.upload.assert_called_with(pkg, ANY)
 
@@ -830,9 +746,9 @@ class TestDynamoCache(unittest.TestCase):
         """save() puts object into database"""
         pkg = make_package(factory=DynamoPackage)
         self.db.save(pkg)
-        count = self.engine.scan(DynamoPackage).count()
+        count = self.packages.scan()["Count"]
         self.assertEqual(count, 1)
-        saved_pkg = self.engine.scan(DynamoPackage).first()
+        saved_pkg = scan_packages(self.packages)[0]
         self.assertEqual(saved_pkg, pkg)
 
     def test_delete(self):
@@ -841,9 +757,9 @@ class TestDynamoCache(unittest.TestCase):
         pkg = make_package(factory=DynamoPackage)
         self._save_pkgs(pkg)
         self.db.delete(pkg)
-        count = self.engine.scan(DynamoPackage).count()
+        count = self.packages.scan()["Count"]
         self.assertEqual(count, 0)
-        count = self.engine.scan(PackageSummary).count()
+        count = self.summaries.scan()["Count"]
         self.assertEqual(count, 0)
         self.storage.delete.assert_called_with(pkg)
 
@@ -853,9 +769,9 @@ class TestDynamoCache(unittest.TestCase):
         pkg = make_package(factory=DynamoPackage)
         self._save_pkgs(pkg)
         self.db.delete(pkg)
-        count = self.engine.scan(DynamoPackage).count()
+        count = self.packages.scan()["Count"]
         self.assertEqual(count, 0)
-        count = self.engine.scan(PackageSummary).count()
+        count = self.summaries.scan()["Count"]
         self.assertEqual(count, 0)
 
     def test_reload(self):
@@ -866,7 +782,7 @@ class TestDynamoCache(unittest.TestCase):
         ]
         self.storage.list.return_value = keys
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, keys)
 
     def test_fetch(self):
@@ -901,45 +817,7 @@ class TestDynamoCache(unittest.TestCase):
         ]
         self._save_pkgs(*pkgs)
         saved_pkgs = self.db.distinct()
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
-
-    def test_search_or(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=DynamoPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=DynamoPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=DynamoPackage),
-            make_package("package", factory=DynamoPackage),
-        ]
-        self._save_pkgs(*pkgs)
-        criteria = {"name": ["mypkg"], "summary": ["mypkg"]}
-        packages = self.db.search(criteria, "or")
-        self.assertCountEqual(packages, pkgs[:-1])
-
-    def test_search_and(self):
-        """search() returns packages that match the query"""
-        pkgs = [
-            make_package(factory=DynamoPackage),
-            make_package(
-                "somepackage",
-                version="1.3",
-                filename="mypath3",
-                summary="this is mypkg",
-                factory=DynamoPackage,
-            ),
-            make_package("mypkg2", "1.3.4", "my/other/path", factory=DynamoPackage),
-            make_package("package", factory=DynamoPackage),
-        ]
-        self._save_pkgs(*pkgs)
-        criteria = {"name": ["my", "pkg"], "summary": ["this", "mypkg"]}
-        packages = self.db.search(criteria, "and")
-        self.assertCountEqual(packages, pkgs[:-1])
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_summary(self):
         """summary constructs per-package metadata summary"""
@@ -982,26 +860,35 @@ class TestDynamoCache(unittest.TestCase):
 
     def test_clear_all_keep_throughput(self):
         """Calling clear_all will keep same table throughput"""
-        throughput = {}
-        for model in (DynamoPackage, PackageSummary):
-            tablename = model.meta_.ddb_tablename(self.engine.namespace)
-            desc = self.dynamo.describe_table(tablename)
-            self.dynamo.update_table(desc.name, Throughput(7, 7))
-            for index in desc.global_indexes:
-                self.dynamo.update_table(
-                    desc.name, global_indexes={index.name: Throughput(7, 7)}
-                )
+        client = self.packages.meta.client
+        throughput = {"ReadCapacityUnits": 7, "WriteCapacityUnits": 7}
+        client.update_table(
+            TableName=self.packages.name,
+            ProvisionedThroughput=throughput,
+            GlobalSecondaryIndexUpdates=[
+                {
+                    "Update": {
+                        "IndexName": "name-index",
+                        "ProvisionedThroughput": throughput,
+                    }
+                }
+            ],
+        )
+        client.update_table(
+            TableName=self.summaries.name, ProvisionedThroughput=throughput
+        )
 
         self.db.clear_all()
 
-        for model in (DynamoPackage, PackageSummary):
-            tablename = model.meta_.ddb_tablename(self.engine.namespace)
-            desc = self.dynamo.describe_table(tablename)
-            self.assertEqual(desc.throughput.read, 7)
-            self.assertEqual(desc.throughput.write, 7)
-            for index in desc.global_indexes:
-                self.assertEqual(index.throughput.read, 7)
-                self.assertEqual(index.throughput.write, 7)
+        for table in (self.db.packages, self.db.summaries):
+            desc = client.describe_table(TableName=table.name)["Table"]
+            self.assertEqual(desc["ProvisionedThroughput"]["ReadCapacityUnits"], 7)
+            self.assertEqual(desc["ProvisionedThroughput"]["WriteCapacityUnits"], 7)
+            for index in desc.get("GlobalSecondaryIndexes", []):
+                self.assertEqual(index["ProvisionedThroughput"]["ReadCapacityUnits"], 7)
+                self.assertEqual(
+                    index["ProvisionedThroughput"]["WriteCapacityUnits"], 7
+                )
 
     def test_upload_no_summary(self):
         """upload() saves package even when there is no summary"""
@@ -1009,11 +896,65 @@ class TestDynamoCache(unittest.TestCase):
         self.db.upload(
             pkg.filename, BytesIO(b"test1234"), pkg.name, pkg.version, summary=""
         )
-        count = self.engine.scan(DynamoPackage).count()
+        count = self.packages.scan()["Count"]
         self.assertEqual(count, 1)
-        saved_pkg = self.engine.scan(DynamoPackage).first()
+        saved_pkg = scan_packages(self.packages)[0]
         self.assertEqual(saved_pkg, pkg)
         self.storage.upload.assert_called_with(pkg, ANY)
+
+    def test_scan_pages(self):
+        """Scanning a table walks every page of results"""
+        pkgs = [
+            make_package(filename=f"mypkg-1.{i}.tar.gz", factory=DynamoPackage)
+            for i in range(12)
+        ]
+        self._save_pkgs(*pkgs)
+        # Limit forces DynamoDB to answer in pages
+        items = list(_iter_items(self.packages, Limit=5))
+        self.assertEqual(len(items), len(pkgs))
+
+    def test_query_pages(self):
+        """Querying the name index walks every page of results"""
+        pkgs = [
+            make_package(
+                version=f"1.{i}", filename=f"mypkg-1.{i}.tar.gz", factory=DynamoPackage
+            )
+            for i in range(12)
+        ]
+        self._save_pkgs(*pkgs)
+        items = list(self.db._query_name(self.packages, "mypkg", Limit=5))
+        self.assertEqual(len(items), len(pkgs))
+
+    def test_fetch_summaries_batches(self):
+        """Fetching summaries chunks the names into several requests"""
+        pkgs = [
+            make_package(
+                f"pkg{i}", filename=f"pkg{i}-1.1.tar.gz", factory=DynamoPackage
+            )
+            for i in range(BATCH_GET_SIZE + 10)
+        ]
+        self._save_pkgs(*pkgs)
+        summaries = self.db._fetch_summaries([p.name for p in pkgs])
+        self.assertCountEqual([s.name for s in summaries], [p.name for p in pkgs])
+
+    def test_fetch_summaries_retries_unprocessed(self):
+        """Keys DynamoDB leaves unprocessed are requested again"""
+        pkg = make_package(factory=DynamoPackage)
+        item = PackageSummary(pkg).to_item()
+        table_name = self.summaries.name
+        self.db.dynamo = MagicMock()
+        self.db.dynamo.batch_get_item.side_effect = [
+            {
+                "Responses": {},
+                "UnprocessedKeys": {table_name: {"Keys": [{"name": pkg.name}]}},
+            },
+            {"Responses": {table_name: [item]}},
+        ]
+
+        summaries = self.db._fetch_summaries([pkg.name])
+
+        self.assertEqual(self.db.dynamo.batch_get_item.call_count, 2)
+        self.assertEqual([s.name for s in summaries], [pkg.name])
 
     def test_check_health_success(self):
         """check_health returns True for good connection"""
@@ -1022,7 +963,7 @@ class TestDynamoCache(unittest.TestCase):
 
     def test_check_health_fail(self):
         """check_health returns False for bad connection"""
-        dbmock = self.db.engine = MagicMock()
+        dbmock = self.db.summaries = MagicMock()
 
         def throw(*_, **__):
             """Throw an exception"""

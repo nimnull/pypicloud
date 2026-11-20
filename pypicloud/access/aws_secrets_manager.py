@@ -1,6 +1,8 @@
-""" Backend that defers to another server for access control """
+"""Backend that defers to another server for access control"""
+
 import json
 from json import JSONDecodeError
+from typing import override
 
 import boto3
 from botocore.exceptions import ClientError
@@ -11,7 +13,6 @@ from .base_json import IMutableJsonAccessBackend
 
 
 class AWSSecretsManagerAccessBackend(IMutableJsonAccessBackend):
-
     """
     This backend allows you to store all user and package permissions in
     AWS Secret Manager
@@ -21,15 +22,16 @@ class AWSSecretsManagerAccessBackend(IMutableJsonAccessBackend):
     def __init__(
         self, request=None, secret_id=None, kms_key_id=None, client=None, **kwargs
     ):
-        super(AWSSecretsManagerAccessBackend, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.secret_id = secret_id
         self.kms_key_id = kms_key_id
         self.client = client
         self.dirty = False
 
     @classmethod
+    @override
     def configure(cls, settings: EnvironSettings):
-        kwargs = super(AWSSecretsManagerAccessBackend, cls).configure(settings)
+        kwargs = super().configure(settings)
         kwargs["secret_id"] = settings["auth.secret_id"]
         kwargs["kms_key_id"] = settings.get("auth.kms_key_id")
         session = boto3.session.Session(
@@ -46,6 +48,7 @@ class AWSSecretsManagerAccessBackend(IMutableJsonAccessBackend):
 
         return kwargs
 
+    @override
     def _get_db(self):
         """Hit a server endpoint and return the json response"""
         try:
@@ -62,8 +65,9 @@ class AWSSecretsManagerAccessBackend(IMutableJsonAccessBackend):
         try:
             return json.loads(response["SecretString"])
         except JSONDecodeError as e:
-            raise Exception("Invalid json detected: {}".format(e)) from e
+            raise Exception(f"Invalid json detected: {e}") from e
 
+    @override
     def _save(self):
         if not self.dirty:
             self.dirty = True
@@ -83,6 +87,7 @@ class AWSSecretsManagerAccessBackend(IMutableJsonAccessBackend):
                 self.client.create_secret(Name=self.secret_id, **kwargs)
             raise
 
+    @override
     def check_health(self):
         try:
             self._get_db()

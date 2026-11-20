@@ -80,9 +80,9 @@ Set ``pypi.db = dynamo`` OR ``pypi.db = pypicloud.cache.dynamo.DynamoCache``
 
 .. note::
 
-  Make sure to ``pip install pypicloud[dynamo]`` before running the server to
-  install the necessary DynamoDB libraries. Also, be sure you have set the
-  correct :ref:`dynamodb_policy`.
+  The DynamoDB backend talks to AWS through boto3, which pypicloud always
+  installs, so no extra packages are needed. Be sure you have set the correct
+  :ref:`dynamodb_policy`.
 
 .. note::
 
