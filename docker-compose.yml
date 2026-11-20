@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   shell:
     build: ./docker
@@ -20,17 +19,28 @@ services:
       GITHUB_TOKEN: $GITHUB_TOKEN
       GITHUB_REF: $GITHUB_REF
       GITHUB_HEAD_REF: $GITHUB_HEAD_REF
-    user: ${CURRENT_UID:?"Please run as follows 'CURRENT_UID=$(id -u):$(id -g) docker-compose up'"}
+      DYNAMO_HOST: dynamodb
+      GCS_HOST: fake-gcs-server
+    user: ${CURRENT_UID:?"Please run through the ./compose script, which sets CURRENT_UID"}
     stdin_open: true
     tty: true
     depends_on:
-      - redis
-      - postgres
-      - mysql
-      - ldap
-      - azurite
-      - redis-cluster-node-2
-      - fake-gcs-server
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis-cluster-node-2:
+        condition: service_healthy
+      ldap:
+        condition: service_started
+      azurite:
+        condition: service_started
+      fake-gcs-server:
+        condition: service_started
+      dynamodb:
+        condition: service_started
   redis:
     image: "redis"
     healthcheck:
@@ -40,17 +50,17 @@ services:
       retries: 2
       start_period: 10s
   redis-cluster-node-0:
-    image: docker.io/bitnami/redis-cluster:7.0
+    image: docker.io/bitnamilegacy/redis-cluster:8.2.1
     environment:
       - 'ALLOW_EMPTY_PASSWORD=yes'
       - 'REDIS_NODES=redis-cluster-node-0 redis-cluster-node-1 redis-cluster-node-2'
   redis-cluster-node-1:
-    image: docker.io/bitnami/redis-cluster:7.0
+    image: docker.io/bitnamilegacy/redis-cluster:8.2.1
     environment:
       - 'ALLOW_EMPTY_PASSWORD=yes'
       - 'REDIS_NODES=redis-cluster-node-0 redis-cluster-node-1 redis-cluster-node-2'
   redis-cluster-node-2:
-    image: docker.io/bitnami/redis-cluster:7.0
+    image: docker.io/bitnamilegacy/redis-cluster:8.2.1
     depends_on:
       - redis-cluster-node-0
       - redis-cluster-node-1
@@ -59,6 +69,14 @@ services:
       - 'REDIS_NODES=redis-cluster-node-0 redis-cluster-node-1 redis-cluster-node-2'
       - 'REDIS_CLUSTER_REPLICAS=0'
       - 'REDIS_CLUSTER_CREATOR=yes'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli cluster info | grep -q cluster_state:ok
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
   postgres:
     image: 'postgres'
     environment:
@@ -78,7 +96,7 @@ services:
       MYSQL_DATABASE: test
       MYSQL_ROOT_PASSWORD: iamroot
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 2
@@ -98,4 +116,6 @@ services:
     image: 'fsouza/fake-gcs-server'
     ports:
       - '4443:4443'
-    command: ["-scheme", "http"]
+    command: [-scheme, http, -external-url, 'http://fake-gcs-server:4443', -public-host, 'fake-gcs-server:4443']
+  dynamodb:
+    image: amazon/dynamodb-local

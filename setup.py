@@ -1,28 +1,28 @@
-""" Setup file """
-import os
+"""Setup file"""
+
 import re
+from pathlib import Path
 
 from setuptools import find_packages, setup
 
-HERE = os.path.abspath(os.path.dirname(__file__))
-README = open(os.path.join(HERE, "README.rst")).read()
-CHANGES = open(os.path.join(HERE, "CHANGES.rst")).read()
+HERE = Path(__file__).resolve().parent
+README = (HERE / "README.rst").read_text(encoding="utf-8")
+CHANGES = (HERE / "CHANGES.rst").read_text(encoding="utf-8")
 # Remove custom RST extensions for pypi
 CHANGES = re.sub(r"\(\s*:(issue|pr|sha):.*?\)", "", CHANGES)
 CHANGES = re.sub(r":ref:`(.*?) <.*>`", r"\1", CHANGES)
 
-REQUIREMENTS_TEST = open(os.path.join(HERE, "requirements_test.txt")).readlines()
 REQUIREMENTS = [
-    "smart_open[s3,http]",
-    "boto3>=1.7.0",
+    "smart_open[s3,http]>=7.0",
+    "boto3>=1.35",
     # beaker needs this
     "cryptography",
     "distlib",
-    "paste",
+    "packaging>=23",
+    "paste>=3.10",
     "passlib>=1.7",
-    "pyramid>=2",
+    "pyramid>=2.1",
     "pyramid_beaker",
-    "pyramid_duh",
     "pyramid_jinja2",
     "pyramid_rpc",
     "pyramid_tm",
@@ -59,9 +59,8 @@ if __name__ == "__main__":
         classifiers=[
             "Programming Language :: Python",
             "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3.7",
-            "Programming Language :: Python :: 3.8",
-            "Programming Language :: Python :: 3.9",
+            "Programming Language :: Python :: 3.14",
+            "Programming Language :: Python :: 3 :: Only",
             "Development Status :: 4 - Beta",
             "Framework :: Pyramid",
             "Intended Audience :: System Administrators",
@@ -77,7 +76,7 @@ if __name__ == "__main__":
         keywords="pypi s3 cheeseshop package",
         platforms="any",
         zip_safe=False,
-        python_requires=">=3.7",
+        python_requires=">=3.14",
         include_package_data=True,
         packages=find_packages(exclude=("tests",)),
         entry_points={
@@ -95,7 +94,5 @@ if __name__ == "__main__":
             "paste.app_factory": ["main = pypicloud:main"],
         },
         install_requires=REQUIREMENTS,
-        tests_require=REQUIREMENTS + REQUIREMENTS_TEST,
-        test_suite="tests",
         extras_require=EXTRAS,
     )

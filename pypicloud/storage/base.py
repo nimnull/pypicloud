@@ -1,13 +1,14 @@
-""" Base class for storage backends """
-from typing import BinaryIO, List, Tuple, Type
+"""Base class for storage backends"""
+
+import builtins
+from typing import BinaryIO
 
 from pyramid.request import Request
 
 from pypicloud.models import Package
 
 
-class IStorage(object):
-
+class IStorage:
     """Base class for a backend that stores package files"""
 
     def __init__(self, request: Request, **kwargs):
@@ -18,7 +19,7 @@ class IStorage(object):
         """Configure the storage method with app settings"""
         return {}
 
-    def list(self, factory: Type[Package] = Package) -> List[Package]:
+    def list(self, factory: type[Package] = Package) -> builtins.list[Package]:
         """Return a list or generator of all packages"""
         raise NotImplementedError
 
@@ -100,7 +101,7 @@ class IStorage(object):
         """
         raise NotImplementedError
 
-    def check_health(self) -> Tuple[bool, str]:
+    def check_health(self) -> tuple[bool, str]:
         """
         Check the health of the storage backend
 

@@ -1,14 +1,21 @@
-""" The access backend object base class """
+"""The access backend object base class"""
+
 import hashlib
 import hmac
 import logging
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, override
 
 from passlib.apps import LazyCryptContext
 from passlib.utils import sys_bits
-from pyramid.security import ALL_PERMISSIONS, Allow, Authenticated, Deny, Everyone
+from pyramid.authorization import (
+    ALL_PERMISSIONS,
+    Allow,
+    Authenticated,
+    Deny,
+    Everyone,
+)
 from pyramid.settings import aslist
 
 from pypicloud.util import EnvironSettings
@@ -40,7 +47,7 @@ if sys_bits < 64:
 
 
 def get_pwd_context(
-    preferred_hash: Optional[str] = None, rounds: Optional[int] = None
+    preferred_hash: str | None = None, rounds: int | None = None
 ) -> LazyCryptContext:
     """Create a passlib context for hashing passwords"""
     if preferred_hash is None or preferred_hash == "sha":
@@ -50,7 +57,7 @@ def get_pwd_context(
 
     if preferred_hash not in SCHEMES:
         raise Exception(
-            "Password hash %r is not in the list of supported schemes" % preferred_hash
+            f"Password hash {preferred_hash!r} is not in the list of supported schemes"
         )
 
     # Put the preferred hash at the beginning of the schemes list
@@ -78,7 +85,7 @@ def group_to_principal(group: str) -> str:
         return "group:" + group
 
 
-def groups_to_principals(groups: List[str]) -> List[str]:
+def groups_to_principals(groups: list[str]) -> list[str]:
     """Convert a list of groups to a list of principals"""
     return [group_to_principal(g) for g in groups]
 
@@ -86,8 +93,7 @@ def groups_to_principals(groups: List[str]) -> List[str]:
 ONE_WEEK = 60 * 60 * 24 * 7
 
 
-class IAccessBackend(object):
-
+class IAccessBackend:
     """Base class for retrieving user and package permission data"""
 
     mutable = False
@@ -122,7 +128,7 @@ class IAccessBackend(object):
         self.signing_key = signing_key
 
     @classmethod
-    def configure(cls, settings: EnvironSettings) -> Dict[str, Any]:
+    def configure(cls, settings: EnvironSettings) -> dict[str, Any]:
         """Configure the access backend with app settings"""
         rounds = settings.get("auth.rounds")
         scheme = settings.get("auth.scheme")
@@ -179,7 +185,7 @@ class IAccessBackend(object):
     def postfork(cls, **kwargs):
         """This method will be called after uWSGI forks"""
 
-    def allowed_permissions(self, package: str) -> Dict[str, Tuple[str, ...]]:
+    def allowed_permissions(self, package: str) -> dict[str, tuple[str, ...]]:
         """
         Get all allowed permissions for all principals on a package
 
@@ -213,7 +219,7 @@ class IAccessBackend(object):
                 all_perms[principal] += ("fallback",)
         return all_perms
 
-    def get_acl(self, package: str) -> List[Tuple[str, str, str]]:
+    def get_acl(self, package: str) -> list[tuple[str, str, str]]:
         """Construct an ACL for a package"""
         acl = []
         permissions = self.allowed_permissions(package)
@@ -234,7 +240,7 @@ class IAccessBackend(object):
                 return True
         return False
 
-    def user_principals(self, username: Optional[str]) -> List[str]:
+    def user_principals(self, username: str | None) -> list[str]:
         """
         Get a list of principals for a user
 
@@ -256,7 +262,7 @@ class IAccessBackend(object):
             principals.append("group:" + group)
         return principals
 
-    def in_group(self, username: Optional[str], group: str) -> bool:
+    def in_group(self, username: str | None, group: str) -> bool:
         """
         Find out if a user is in a group
 
@@ -277,14 +283,14 @@ class IAccessBackend(object):
             return True
         elif username is None:
             return False
-        elif group in ("authenticated", Authenticated):
-            return True
-        elif group in ("admin", Admin) and self.is_admin(username):
+        elif group in ("authenticated", Authenticated) or (
+            group in ("admin", Admin) and self.is_admin(username)
+        ):
             return True
         else:
             return group in self.groups(username)
 
-    def in_any_group(self, username: str, groups: List[str]) -> bool:
+    def in_any_group(self, username: str, groups: list[str]) -> bool:
         """
         Find out if a user is in any of a set of groups
 
@@ -301,7 +307,7 @@ class IAccessBackend(object):
         member : bool
 
         """
-        return any((self.in_group(username, group) for group in groups))
+        return any(self.in_group(username, group) for group in groups)
 
     def can_update_cache(self) -> bool:
         """
@@ -393,7 +399,7 @@ class IAccessBackend(object):
         """Get the stored password hash for a user"""
         raise NotImplementedError
 
-    def groups(self, username: Optional[str] = None) -> List[str]:
+    def groups(self, username: str | None = None) -> list[str]:
         """
         Get a list of all groups
 
@@ -411,7 +417,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def group_members(self, group: str) -> List[str]:
+    def group_members(self, group: str) -> list[str]:
         """
         Get a list of users that belong to a group
 
@@ -442,7 +448,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def group_permissions(self, package: str) -> Dict[str, List[str]]:
+    def group_permissions(self, package: str) -> dict[str, list[str]]:
         """
         Get a mapping of all groups to their permissions on a package
 
@@ -461,7 +467,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def user_permissions(self, package: str) -> Dict[str, List[str]]:
+    def user_permissions(self, package: str) -> dict[str, list[str]]:
         """
         Get a mapping of all users to their permissions for a package
 
@@ -479,7 +485,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def user_package_permissions(self, username: str) -> List[Dict[str, List[str]]]:
+    def user_package_permissions(self, username: str) -> list[dict[str, list[str]]]:
         """
         Get a list of all packages that a user has permissions on
 
@@ -496,7 +502,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def group_package_permissions(self, group: str) -> List[Dict[str, List[str]]]:
+    def group_package_permissions(self, group: str) -> list[dict[str, list[str]]]:
         """
         Get a list of all packages that a group has permissions on
 
@@ -530,7 +536,7 @@ class IAccessBackend(object):
         """
         raise NotImplementedError
 
-    def check_health(self) -> Tuple[bool, str]:
+    def check_health(self) -> tuple[bool, str]:
         """
         Check the health of the access backend
 
@@ -543,7 +549,7 @@ class IAccessBackend(object):
         """
         return True, ""
 
-    def dump(self) -> Dict[str, Any]:
+    def dump(self) -> dict[str, Any]:
         """
         Dump all of the access control data to a universal format
 
@@ -554,7 +560,7 @@ class IAccessBackend(object):
         """
         from pypicloud import __version__
 
-        data = {}  # type: Dict[str, Any]
+        data: dict[str, Any] = {}
         data["allow_register"] = self.allow_register()
         data["version"] = __version__
 
@@ -564,10 +570,10 @@ class IAccessBackend(object):
             user["password"] = self._get_password_hash(user["username"])
 
         data["groups"] = {}
-        packages = {
+        packages: dict[str, Any] = {
             "users": defaultdict(dict),
             "groups": defaultdict(dict),
-        }  # type: Dict[str, Any]
+        }
         for group in groups:
             data["groups"][group] = self.group_members(group)
             perms = self.group_package_permissions(group)
@@ -601,13 +607,12 @@ class IAccessBackend(object):
 
         """
         raise TypeError(
-            "Access backend '%s' is not mutable and has no "
-            "'load' implementation" % self.__class__.__name__
+            f"Access backend '{self.__class__.__name__}' is not mutable and has no "
+            "'load' implementation"
         )
 
 
 class IMutableAccessBackend(IAccessBackend):
-
     """
     Base class for access backends that can change user/group permissions
 
@@ -615,11 +620,9 @@ class IMutableAccessBackend(IAccessBackend):
 
     mutable = True
 
+    @override
     def need_admin(self) -> bool:
-        for user in self.user_data():
-            if user["admin"]:
-                return False
-        return True
+        return all(not user["admin"] for user in self.user_data())
 
     def get_signup_token(self, username: str) -> str:
         """
@@ -638,11 +641,11 @@ class IMutableAccessBackend(IAccessBackend):
         msg, signature = self._hmac(username, time.time())
         return msg + ":" + signature
 
-    def _hmac(self, username: str, timestamp: float) -> Tuple[str, str]:
+    def _hmac(self, username: str, timestamp: float) -> tuple[str, str]:
         """HMAC a username/expiration combo"""
         if self.signing_key is None:
             raise RuntimeError("auth.signing_key is not set!")
-        msg = "%s:%d" % (username, timestamp)
+        msg = f"{username}:{int(timestamp)}"
         return (
             msg,
             hmac.new(
@@ -650,7 +653,7 @@ class IMutableAccessBackend(IAccessBackend):
             ).hexdigest(),
         )
 
-    def validate_signup_token(self, token: str) -> Optional[str]:
+    def validate_signup_token(self, token: str) -> str | None:
         """
         Validate a signup token
 
@@ -673,19 +676,15 @@ class IMutableAccessBackend(IAccessBackend):
         if issued + self.token_expiration < time.time():
             return None
         _, expected = self._hmac(username, issued)
-        if hasattr(hmac, "compare_digest"):
-            if not hmac.compare_digest(
-                signature.encode("utf-8"), expected.encode("utf-8")
-            ):
-                return None
-        else:
-            if signature != expected:
-                return None
+        if not hmac.compare_digest(signature.encode("utf-8"), expected.encode("utf-8")):
+            return None
         return username
 
+    @override
     def allow_register(self):
         raise NotImplementedError
 
+    @override
     def allow_register_token(self):
         return self.signing_key is not None
 
@@ -730,7 +729,7 @@ class IMutableAccessBackend(IAccessBackend):
         """
         raise NotImplementedError
 
-    def pending_users(self) -> List[str]:
+    def pending_users(self) -> list[str]:
         """
         Retrieve a list of all users pending admin approval
 
@@ -839,7 +838,7 @@ class IMutableAccessBackend(IAccessBackend):
         raise NotImplementedError
 
     def edit_user_permission(
-        self, package_name: str, username: str, perm: Set[str], add: bool
+        self, package_name: str, username: str, perm: set[str], add: bool
     ) -> None:
         """
         Grant or revoke a permission for a user on a package
@@ -856,7 +855,7 @@ class IMutableAccessBackend(IAccessBackend):
         raise NotImplementedError
 
     def edit_group_permission(
-        self, package_name: str, group: str, perm: Set[str], add: bool
+        self, package_name: str, group: str, perm: set[str], add: bool
     ) -> None:
         """
         Grant or revoke a permission for a group on a package
@@ -872,15 +871,17 @@ class IMutableAccessBackend(IAccessBackend):
         """
         raise NotImplementedError
 
+    @override
     def dump(self):
-        data = super(IMutableAccessBackend, self).dump()
+        data = super().dump()
         pending_users = []
-        for username in self.pending_users():  # pylint: disable=E1101
+        for username in self.pending_users():
             password = self._get_password_hash(username)
             pending_users.append({"username": username, "password": password})
         data["pending_users"] = pending_users
         return data
 
+    @override
     def load(self, data):
         pending_users = set(self.pending_users())
 

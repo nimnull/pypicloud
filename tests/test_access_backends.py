@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
-""" Tests for access backends """
+"""Tests for access backends"""
+
 import json
 import os
 import unittest
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import transaction
 import zope.sqlalchemy
-from mock import MagicMock, PropertyMock, patch
 from pyramid import testing
-from pyramid.authorization import ACLAuthorizationPolicy
-from pyramid.security import Authenticated, Everyone
+from pyramid.authorization import ACLAuthorizationPolicy, Authenticated, Everyone
 from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
@@ -39,13 +38,10 @@ from pypicloud.util import EnvironSettings
 
 from .db_utils import get_mysql_url, get_postgres_url, get_sqlite_url
 
-pwd_context = get_pwd_context()  # pylint: disable=C0103
-
-# pylint: disable=W0707
+pwd_context = get_pwd_context()
 
 
-class PartialEq(object):
-
+class PartialEq:
     """Helper object to compare equality against functools.partial objects"""
 
     def __init__(self, obj):
@@ -58,7 +54,7 @@ class PartialEq(object):
         return not self.__eq__(other)
 
     def __repr__(self):
-        return "partial(%s)" % self.obj
+        return f"partial({self.obj})"
 
 
 def make_user(name, password, pending=True):
@@ -67,7 +63,6 @@ def make_user(name, password, pending=True):
 
 
 class TestUtilities(unittest.TestCase):
-
     """Tests for the access utilities"""
 
     def test_group_to_principal(self):
@@ -85,7 +80,6 @@ class TestUtilities(unittest.TestCase):
 
 
 class BaseACLTest(unittest.TestCase):
-
     """Base test for anything checking ACLs"""
 
     def setUp(self):
@@ -114,11 +108,10 @@ class BaseACLTest(unittest.TestCase):
 
 
 class TestBaseBackend(BaseACLTest):
-
     """Tests for the access backend interface"""
 
     def setUp(self):
-        super(TestBaseBackend, self).setUp()
+        super().setUp()
         self.backend = IAccessBackend(self.request)
         patch.object(self.backend, "verify_user").start()
         patch.object(self.backend, "groups").start()
@@ -128,7 +121,7 @@ class TestBaseBackend(BaseACLTest):
         self.request = DummyRequest(access=self.backend)
 
     def tearDown(self):
-        super(TestBaseBackend, self).tearDown()
+        super().tearDown()
         patch.stopall()
 
     def test_root_acl(self):
@@ -343,7 +336,6 @@ class TestBaseBackend(BaseACLTest):
 
 
 class TestConfigBackend(BaseACLTest):
-
     """Tests for access backend that uses config settings"""
 
     def _backend(self, settings):
@@ -531,7 +523,6 @@ class TestConfigBackend(BaseACLTest):
 
 
 class TestRemoteBackend(unittest.TestCase):
-
     """Tests for the access backend that delegates calls to remote server"""
 
     def setUp(self):
@@ -654,16 +645,16 @@ class TestSQLiteBackend(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestSQLiteBackend, cls).setUpClass()
+        super().setUpClass()
         db_url = cls.get_db_url()
         cls.settings = EnvironSettings({"auth.db.url": db_url}, {})
         try:
             cls.kwargs = SQLAccessBackend.configure(cls.settings)
-        except OperationalError:
-            raise unittest.SkipTest(f"Couldn't connect to database {db_url}")
+        except OperationalError as e:
+            raise unittest.SkipTest(f"Couldn't connect to database {db_url}") from e
 
     def setUp(self):
-        super(TestSQLiteBackend, self).setUp()
+        super().setUp()
         transaction.begin()
         request = MagicMock()
         request.tm = transaction.manager
@@ -672,7 +663,7 @@ class TestSQLiteBackend(unittest.TestCase):
         zope.sqlalchemy.register(self.db, transaction_manager=transaction.manager)
 
     def tearDown(self):
-        super(TestSQLiteBackend, self).tearDown()
+        super().tearDown()
         transaction.abort()
         self.access.db.close()
         self.db.close()
@@ -1232,11 +1223,11 @@ class BaseLDAPTest(BaseACLTest):
     def setUpClass(cls):
         super().setUpClass()
         host = os.environ.get("LDAP_HOST", "localhost")
-        l = ldap.initialize(f"ldap://{host}")
+        conn = ldap.initialize(f"ldap://{host}")
         try:
-            l.simple_bind_s("", "")
-        except ldap.SERVER_DOWN:
-            raise unittest.SkipTest(f"Couldn't connect to LDAP at {host}")
+            conn.simple_bind_s("", "")
+        except ldap.SERVER_DOWN as e:
+            raise unittest.SkipTest(f"Couldn't connect to LDAP at {host}") from e
 
     def setUp(self):
         super().setUp()
@@ -1256,7 +1247,7 @@ class BaseLDAPTest(BaseACLTest):
             "auth.ldap.admin_value": ["cn=pypicloud_admin,dc=example,dc=org"],
         }
         settings.update(settings_override or {})
-        settings = dict(((k, v) for (k, v) in settings.items() if v is not None))
+        settings = {k: v for (k, v) in settings.items() if v is not None}
         kwargs = LDAPAccessBackend.configure(settings)
         request = DummyRequest()
         return LDAPAccessBackend(request, **kwargs)
@@ -1386,13 +1377,12 @@ class TestLDAPBackend(BaseLDAPTest):
 
 
 class TestMockLDAPBackendWithConfig(BaseLDAPTest):
-
     """Test the LDAP backend falling back to config file for groups/permissions"""
 
     def _backend(self, settings_override=None):
         settings = {"auth.ldap.fallback": "config"}
         settings.update(settings_override or {})
-        return super(TestMockLDAPBackendWithConfig, self)._backend(settings)
+        return super()._backend(settings)
 
     def test_verify(self):
         """Users can log in with correct password"""
@@ -1516,7 +1506,7 @@ class TestAWSSecretsManagerBackend(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestAWSSecretsManagerBackend, cls).setUpClass()
+        super().setUpClass()
         cls.settings = EnvironSettings({"auth.secret_id": "sekrit"}, {})
         patch.object(aws_secrets_manager, "boto3").start()
         cls.kwargs = aws_secrets_manager.AWSSecretsManagerAccessBackend.configure(
@@ -1525,11 +1515,11 @@ class TestAWSSecretsManagerBackend(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        super(TestAWSSecretsManagerBackend, cls).tearDownClass()
+        super().tearDownClass()
         patch.stopall()
 
     def setUp(self):
-        super(TestAWSSecretsManagerBackend, self).setUp()
+        super().setUp()
         transaction.begin()
         request = MagicMock()
         request.tm = transaction.manager

@@ -1,5 +1,7 @@
-""" Backend that reads access control rules from config file """
+"""Backend that reads access control rules from config file"""
+
 import logging
+from typing import override
 
 from pyramid.settings import aslist
 
@@ -9,16 +11,16 @@ LOG = logging.getLogger(__name__)
 
 
 class ConfigAccessBackend(IJsonAccessBackend):
-
     """Access Backend that uses values set in the config file"""
 
     def __init__(self, request=None, data=None, **kwargs):
-        super(ConfigAccessBackend, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self._data = data
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(ConfigAccessBackend, cls).configure(settings)
+        kwargs = super().configure(settings)
         data = {}
 
         users = {}
@@ -53,6 +55,7 @@ class ConfigAccessBackend(IJsonAccessBackend):
         kwargs["data"] = data
         return kwargs
 
+    @override
     def _get_db(self):
         return self._data
 
@@ -69,6 +72,7 @@ class ConfigAccessBackend(IJsonAccessBackend):
             perms.append("write")
         return perms
 
+    @override
     def load(self, data):
         lines = []
         admins = []
@@ -80,12 +84,12 @@ class ConfigAccessBackend(IJsonAccessBackend):
         if admins:
             lines.append("auth.admins =")
             for admin in admins:
-                lines.append("    {0}".format(admin))
+                lines.append(f"    {admin}")
 
         for group, members in data["groups"].items():
-            lines.append("group.{0} =".format(group))
+            lines.append(f"group.{group} =")
             for member in members:
-                lines.append("    {0}".format(member))
+                lines.append(f"    {member}")
 
         def encode_permissions(perms):
             """Encode a permissions list as the r/rw specification"""
@@ -99,17 +103,13 @@ class ConfigAccessBackend(IJsonAccessBackend):
         for package, groups in data["packages"]["groups"].items():
             for group, permissions in groups.items():
                 lines.append(
-                    "package.{0}.group.{1} = {2}".format(
-                        package, group, encode_permissions(permissions)
-                    )
+                    f"package.{package}.group.{group} = {encode_permissions(permissions)}"
                 )
 
         for package, users in data["packages"]["users"].items():
             for user, permissions in users.items():
                 lines.append(
-                    "package.{0}.user.{1} = {2}".format(
-                        package, user, encode_permissions(permissions)
-                    )
+                    f"package.{package}.user.{user} = {encode_permissions(permissions)}"
                 )
 
         return "\n".join(lines)

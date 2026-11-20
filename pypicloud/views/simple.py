@@ -1,13 +1,14 @@
-""" Views for simple pip interaction """
+"""Views for simple pip interaction"""
+
 import logging
 import posixpath
 
-import pkg_resources
+from packaging.version import parse
 from pyramid.httpexceptions import HTTPBadRequest, HTTPConflict, HTTPFound, HTTPNotFound
 from pyramid.view import view_config
-from pyramid_duh import addslash, argify
 from pyramid_rpc.xmlrpc import xmlrpc_method
 
+from pypicloud.duh import addslash, argify
 from pypicloud.route import Root, SimplePackageResource, SimpleResource
 from pypicloud.util import (
     PackageParseError,
@@ -48,7 +49,7 @@ def upload(
         except ValueError as e:
             return HTTPConflict(*e.args)
     else:
-        return HTTPBadRequest("Unknown action '%s'" % action)
+        return HTTPBadRequest(f"Unknown action '{action}'")
 
 
 @xmlrpc_method(endpoint="pypi")
@@ -138,7 +139,7 @@ def package_versions_json(context, request):
             name, version_str = parse_filename(filename)
         except PackageParseError:
             continue
-        version = pkg_resources.parse_version(version_str)
+        version = parse(version_str)
         if max_version is None or version > max_version:
             max_version = version
 
@@ -211,9 +212,11 @@ def _redirect(context, request):
     """Return a 302 to the fallback url for this package"""
     if request.registry.fallback_base_url:
         path = request.path.lstrip("/")
-        redirect_url = "%s/%s" % (request.registry.fallback_base_url.rstrip("/"), path)
+        redirect_url = "{}/{}".format(
+            request.registry.fallback_base_url.rstrip("/"), path
+        )
     else:
-        redirect_url = "%s/%s/" % (
+        redirect_url = "{}/{}/".format(
             request.registry.fallback_url.rstrip("/"),
             context.name,
         )
@@ -264,7 +267,7 @@ def _simple_cache(context, request):
 
     if not request.access.has_permission(normalized_name, "read"):
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
 
@@ -274,7 +277,7 @@ def _simple_cache(context, request):
 
     if not request.access.can_update_cache():
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
     else:
@@ -328,7 +331,7 @@ def _simple_serve(context, request):
 
     if not request.access.has_permission(normalized_name, "read"):
         if request.is_authenticated:
-            return HTTPNotFound("No packages found named %r" % normalized_name)
+            return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
             return request.request_login()
 

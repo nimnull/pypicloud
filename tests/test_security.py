@@ -1,23 +1,22 @@
-""" Tests for view security and auth """
+"""Tests for view security and auth"""
+
 import base64
 import unittest
 from collections import defaultdict
 from io import BytesIO
 
 import webtest
-from passlib.hash import sha256_crypt  # pylint: disable=E0611
+from passlib.hash import sha256_crypt
 
 from pypicloud import main
 
 from . import DummyCache, DummyStorage, make_package
 
-# pylint: disable=W0212
-
 
 def _auth(username, password):
     """Generate a basic auth header"""
     base64string = (
-        base64.b64encode(("%s:%s" % (username, password)).encode("utf8"))
+        base64.b64encode((f"{username}:{password}").encode())
         .decode("utf8")
         .replace("\n", "")
     )
@@ -27,30 +26,27 @@ def _auth(username, password):
 
 
 class GlobalDummyStorage(DummyStorage):
-
     """Dummy storage with class-level package storage"""
 
     global_packages = {}
 
     def __init__(self, request=None, **kwargs):
-        super(GlobalDummyStorage, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.packages = self.global_packages
 
 
 class GlobalDummyCache(DummyCache):
-
     """Dummy cache with class-level package storage"""
 
     global_packages = defaultdict(list)
 
     def __init__(self, request=None, **kwargs):
         kwargs.setdefault("storage", GlobalDummyStorage)
-        super(GlobalDummyCache, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.packages = self.global_packages
 
 
 class TestEndpointSecurity(unittest.TestCase):
-
     """
     Functional tests for view permissions
 
@@ -66,10 +62,10 @@ class TestEndpointSecurity(unittest.TestCase):
             "pypi.db": "tests.test_security.GlobalDummyCache",
             "pypi.storage": "tests.test_security.GlobalDummyStorage",
             "session.validate_key": "a",
-            "user.user": sha256_crypt.encrypt("user"),
-            "user.user2": sha256_crypt.encrypt("user2"),
-            "package.%s.group.authenticated" % package.name: "r",
-            "package.%s.group.brotatos" % package.name: "rw",
+            "user.user": sha256_crypt.hash("user"),
+            "user.user2": sha256_crypt.hash("user2"),
+            f"package.{package.name}.group.authenticated": "r",
+            f"package.{package.name}.group.brotatos": "rw",
             "group.brotatos": ["user2"],
         }
         app = main({}, **settings)
@@ -92,21 +88,21 @@ class TestEndpointSecurity(unittest.TestCase):
     def test_api_pkg_unauthed(self):
         """/api/package/<pkg> requires read perms"""
         response = self.app.get(
-            "/api/package/%s/" % self.package.name, expect_errors=True
+            f"/api/package/{self.package.name}/", expect_errors=True
         )
         self.assertEqual(response.status_int, 401)
 
     def test_api_pkg_authed(self):
         """/api/package/<pkg> requires read perms"""
         response = self.app.get(
-            "/api/package/%s/" % self.package.name, headers=_auth("user", "user")
+            f"/api/package/{self.package.name}/", headers=_auth("user", "user")
         )
         self.assertEqual(response.status_int, 200)
 
     def test_api_pkg_versions_unauthed(self):
         """/api/package/<pkg>/<filename> requires write perms"""
         params = {"content": webtest.forms.Upload("filename.txt", b"datadatadata")}
-        url = "/api/package/%s/%s/" % (self.package.name, self.package.filename)
+        url = f"/api/package/{self.package.name}/{self.package.filename}/"
         response = self.app.post(
             url, params, expect_errors=True, headers=_auth("user", "user")
         )
@@ -116,13 +112,13 @@ class TestEndpointSecurity(unittest.TestCase):
         """/api/package/<pkg>/<filename> requires write perms"""
         package = make_package(self.package.name, "1.5")
         params = {"content": webtest.forms.Upload(package.filename, b"datadatadata")}
-        url = "/api/package/%s/%s" % (package.name, package.filename)
+        url = f"/api/package/{package.name}/{package.filename}"
         response = self.app.post(url, params, headers=_auth("user2", "user2"))
         self.assertEqual(response.status_int, 200)
 
     def test_api_delete_unauthed(self):
         """delete /api/package/<pkg>/<filename> requires write perms"""
-        url = "/api/package/%s/%s" % (self.package.name, self.package.filename)
+        url = f"/api/package/{self.package.name}/{self.package.filename}"
         response = self.app.delete(
             url, expect_errors=True, headers=_auth("user", "user")
         )
@@ -130,7 +126,7 @@ class TestEndpointSecurity(unittest.TestCase):
 
     def test_api_delete_authed(self):
         """delete /api/package/<pkg>/<filename> requires write perms"""
-        url = "/api/package/%s/%s" % (self.package.name, self.package.filename)
+        url = f"/api/package/{self.package.name}/{self.package.filename}"
         response = self.app.delete(url, headers=_auth("user2", "user2"))
         self.assertEqual(response.status_int, 200)
 
@@ -146,9 +142,9 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
             "pypi.allow_overwrite_groups": ["admin"],
             "pypi.allow_delete_groups": ["admin"],
             "session.validate_key": "a",
-            "user.user": sha256_crypt.encrypt("user"),
-            "user.admin": sha256_crypt.encrypt("admin"),
-            "package.%s.user.user" % package.name: "rw",
+            "user.user": sha256_crypt.hash("user"),
+            "user.admin": sha256_crypt.hash("admin"),
+            f"package.{package.name}.user.user": "rw",
             "auth.admins": ["admin"],
         }
         app = main({}, **settings)
@@ -174,7 +170,7 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
         params = {
             "content": webtest.forms.Upload(self.package.filename, b"datadatadata")
         }
-        url = "/api/package/%s/%s/" % (self.package.name, self.package.filename)
+        url = f"/api/package/{self.package.name}/{self.package.filename}/"
         response = self.app.post(
             url, params, expect_errors=True, headers=_auth("user", "user")
         )
@@ -185,7 +181,7 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
         params = {
             "content": webtest.forms.Upload(self.package.filename, b"datadatadata")
         }
-        url = "/api/package/%s/%s/" % (self.package.name, self.package.filename)
+        url = f"/api/package/{self.package.name}/{self.package.filename}/"
         response = self.app.post(url, params, headers=_auth("admin", "admin"))
         self.assertEqual(response.status_int, 200)
 
@@ -193,9 +189,7 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
         """/api/package/<pkg>/<filename> validates allow_delete_groups setting"""
 
         response = self.app.delete(
-            "/api/package/{package_name}/{filename}".format(
-                package_name=self.package.name, filename=self.package.filename
-            ),
+            f"/api/package/{self.package.name}/{self.package.filename}",
             expect_errors=True,
             headers=_auth("user", "user"),
         )
@@ -204,9 +198,7 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
     def test_api_pkg_delete_admin(self):
         """/api/package/<pkg>/<filename> validates allow_delete_groups setting"""
         response = self.app.delete(
-            "/api/package/{package_name}/{filename}".format(
-                package_name=self.package.name, filename=self.package.filename
-            ),
+            f"/api/package/{self.package.name}/{self.package.filename}",
             headers=_auth("admin", "admin"),
         )
         self.assertEqual(response.status_int, 200)

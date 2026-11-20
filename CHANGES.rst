@@ -2,6 +2,26 @@ Changelog
 =========
 If you are upgrading an existing installation, read :ref:`the instructions <upgrade>`
 
+Unreleased
+----------
+* **Breaking**: Python 3.14 is required. Support for 3.7 through 3.13 is dropped
+* **Breaking**: ``pypicloud.dateutil`` is removed. Use ``datetime.UTC``,
+  ``datetime.now(UTC)`` and ``datetime.fromtimestamp(ts, UTC)``
+* **Breaking**: ``FileStorage.get_path()``, ``get_metadata_path()`` and
+  ``path_to_meta_path()`` return ``pathlib.Path`` instead of ``str``
+* Drop the ``pyramid_duh`` dependency. The ``argify`` and ``addslash``
+  decorators, the ``subpath`` view predicate and the ``param`` request method
+  now live in ``pypicloud.duh``
+* Drop ``pkg_resources``: versions parse with ``packaging`` and the config
+  template loads with ``importlib.resources``
+* Define the SQL models with the SQLAlchemy 2.0 declarative API
+  (``DeclarativeBase``, ``Mapped``, ``mapped_column``)
+* Run the test suite with pytest, and lint with ruff. ``nose``, ``mock``,
+  ``black``, ``isort``, ``pylint`` and ``sqlalchemy-stubs`` are no longer
+  development dependencies
+* The DynamoDB tests read ``DYNAMO_HOST`` and ``DYNAMO_PORT`` and skip when no
+  service answers
+
 1.3.12 - 2022/12/29
 -------------------
 * Fix errors with the GCS backend (:pr:`320`)

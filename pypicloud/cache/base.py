@@ -1,12 +1,13 @@
-""" Base class for all cache implementations """
+"""Base class for all cache implementations"""
+
 import hashlib
 import logging
 import posixpath
-from typing import Any, BinaryIO, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, BinaryIO
 
 from pyramid.settings import asbool
 
-from pypicloud.dateutil import utcfromtimestamp
 from pypicloud.models import Package
 from pypicloud.storage import get_storage_impl
 from pypicloud.util import create_matcher, normalize_name, parse_filename, stream_file
@@ -14,8 +15,7 @@ from pypicloud.util import create_matcher, normalize_name, parse_filename, strea
 LOG = logging.getLogger(__name__)
 
 
-class ICache(object):
-
+class ICache:
     """Base class for a caching database that stores package metadata"""
 
     def __init__(
@@ -88,11 +88,11 @@ class ICache(object):
         self,
         filename: str,
         data: BinaryIO,
-        name: Optional[str] = None,
-        version: Optional[str] = None,
-        summary: Optional[str] = None,
-        requires_python: Optional[str] = None,
-        **metadata
+        name: str | None = None,
+        version: str | None = None,
+        summary: str | None = None,
+        requires_python: str | None = None,
+        **metadata,
     ) -> Package:
         """
         Save this package to the storage mechanism and to the cache
@@ -135,7 +135,7 @@ class ICache(object):
             raise ValueError("Unauthorized to overwrite packages.")
 
         if self.calculate_hashes:
-            sha256, md5 = hashlib.sha256(), hashlib.md5()
+            sha256, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
             for chunk in stream_file(data):
                 sha256.update(chunk)
                 md5.update(chunk)
@@ -184,7 +184,7 @@ class ICache(object):
         """
         raise NotImplementedError
 
-    def all(self, name: str) -> List[Package]:
+    def all(self, name: str) -> list[Package]:
         """
         Search for all versions of a package
 
@@ -202,7 +202,7 @@ class ICache(object):
         """
         raise NotImplementedError
 
-    def distinct(self) -> List[str]:
+    def distinct(self) -> list[str]:
         """
         Get all distinct package names
 
@@ -214,7 +214,7 @@ class ICache(object):
         """
         raise NotImplementedError
 
-    def search(self, criteria: Dict[str, List[str]], query_type: str) -> List[Package]:
+    def search(self, criteria: dict[str, list[str]], query_type: str) -> list[Package]:
         """
         Perform a search from pip
 
@@ -247,21 +247,22 @@ class ICache(object):
 
         for key in self.distinct():
             # Search all versions of this package key
-            latest: Optional[Package] = None
+            latest: Package | None = None
             for package in self.all(key):
                 # Search for a match. If we've already found a match, make sure
                 # we find the most recent version that matches.
-                if latest is None or package > latest:
-                    if match_name(package.name):
-                        latest = package
-                    elif package.summary is not None and match_summary(package.summary):
-                        latest = package
+                if (latest is None or package > latest) and (
+                    match_name(package.name)
+                    or package.summary is not None
+                    and match_summary(package.summary)
+                ):
+                    latest = package
             if latest is not None:
                 packages.append(latest)
 
         return packages
 
-    def summary(self) -> List[Dict[str, Any]]:
+    def summary(self) -> list[dict[str, Any]]:
         """
         Summarize package metadata
 
@@ -277,14 +278,12 @@ class ICache(object):
             pkg = {
                 "name": name,
                 "summary": "",
-                "last_modified": utcfromtimestamp(0),
+                "last_modified": datetime.fromtimestamp(0, UTC),
             }
-            max_pkg: Optional[Package] = None
+            max_pkg: Package | None = None
             for package in self.all(name):
                 pkg["last_modified"] = max(pkg["last_modified"], package.last_modified)
-                if max_pkg is None:
-                    max_pkg = package
-                elif package > max_pkg:
+                if max_pkg is None or package > max_pkg:
                     max_pkg = package
             if max_pkg:
                 pkg["summary"] = max_pkg.summary
@@ -318,7 +317,7 @@ class ICache(object):
         """
         raise NotImplementedError
 
-    def check_health(self) -> Tuple[bool, str]:
+    def check_health(self) -> tuple[bool, str]:
         """
         Check the health of the cache backend
 

@@ -1,11 +1,15 @@
-""" Store packages as files on disk """
+"""Store packages as files on disk"""
+
+import contextlib
 import json
 import os
 from binascii import hexlify
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import override
 
 from pyramid.response import FileResponse
 
-from pypicloud.dateutil import utcfromtimestamp
 from pypicloud.models import Package
 from pypicloud.util import stream_file
 
@@ -13,58 +17,56 @@ from .base import IStorage
 
 
 class FileStorage(IStorage):
-
     """Stores package files on the filesystem"""
 
     def __init__(self, request=None, **kwargs):
-        self.directory = kwargs.pop("directory")
-        super(FileStorage, self).__init__(request, **kwargs)
+        self.directory = Path(kwargs.pop("directory"))
+        super().__init__(request, **kwargs)
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(FileStorage, cls).configure(settings)
-        directory = os.path.abspath(settings["storage.dir"]).rstrip(os.sep)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+        kwargs = super().configure(settings)
+        directory = Path(settings["storage.dir"]).expanduser().resolve()
+        directory.mkdir(parents=True, exist_ok=True)
         kwargs["directory"] = directory
         return kwargs
 
-    def get_path(self, package):
+    def get_path(self, package) -> Path:
         """Get the fully-qualified file path for a package"""
-        return os.path.join(
-            self.directory, package.name, package.version, package.filename
-        )
+        return self.directory / package.name / package.version / package.filename
 
-    def path_to_meta_path(self, path):
-        """Construct the filename for a metadata file"""
-        return path + ".meta"
+    def path_to_meta_path(self, path: Path) -> Path:
+        """Construct the path of the metadata file that goes with a package file"""
+        return path.with_name(path.name + ".meta")
 
-    def get_metadata_path(self, package):
+    def get_metadata_path(self, package) -> Path:
         """Get the fully-qualified file path for a package metadata file"""
         return self.path_to_meta_path(self.get_path(package))
 
+    @override
     def list(self, factory=Package):
-        for root, _, files in os.walk(self.directory):
+        for root, _, files in self.directory.walk():
             for filename in files:
                 if filename.endswith(".meta"):
                     # We don't want to yield for this file
                     continue
 
-                shortpath = root[len(self.directory) :].strip(os.sep)
-                name, version = shortpath.split(os.sep)
-                fullpath = os.path.join(root, filename)
-                last_modified = utcfromtimestamp(os.path.getmtime(fullpath))
+                name, version = root.relative_to(self.directory).parts
+                fullpath = root / filename
+                last_modified = datetime.fromtimestamp(fullpath.stat().st_mtime, UTC)
                 metadata = {}
                 metafile = self.path_to_meta_path(fullpath)
-                if os.path.exists(metafile):
-                    with open(metafile, "r", encoding="utf-8") as mfile:
-                        try:
-                            metadata = json.load(mfile)
-                        except ValueError:
-                            # If JSON fails to decode, don't sweat it.
-                            pass
+                if metafile.exists():
+                    # If JSON fails to decode, don't sweat it.
+                    with (
+                        contextlib.suppress(ValueError),
+                        metafile.open(encoding="utf-8") as mfile,
+                    ):
+                        metadata = json.load(mfile)
                 yield factory(name, version, filename, last_modified, **metadata)
 
+    @override
     def download_response(self, package):
         return FileResponse(
             self.get_path(package),
@@ -72,50 +74,39 @@ class FileStorage(IStorage):
             content_type="application/octet-stream",
         )
 
+    @override
     def upload(self, package, datastream):
         destfile = self.get_path(package)
-        dest_meta_file = self.get_metadata_path(package)
-        destdir = os.path.dirname(destfile)
-        if not os.path.exists(destdir):
-            os.makedirs(destdir)
+        destdir = destfile.parent
+        destdir.mkdir(parents=True, exist_ok=True)
         uid = hexlify(os.urandom(4)).decode("utf-8")
 
         # Store metadata as JSON. This could be expanded in the future
         # to store additional metadata about a package (i.e. author)
-        tempfile = os.path.join(destdir, ".metadata." + uid)
-        with open(tempfile, "w", encoding="utf-8") as mfile:
+        temp = destdir / f".metadata.{uid}"
+        with temp.open("w", encoding="utf-8") as mfile:
             json.dump(package.get_metadata(), mfile)
-
-        os.rename(tempfile, dest_meta_file)
+        temp.replace(self.get_metadata_path(package))
 
         # Write to a temporary file
-        tempfile = os.path.join(destdir, "." + package.filename + "." + uid)
-        with open(tempfile, "wb") as ofile:
-            for chunk in stream_file(datastream):
-                ofile.write(chunk)
+        temp = destdir / f".{package.filename}.{uid}"
+        with temp.open("wb") as ofile:
+            ofile.writelines(stream_file(datastream))
+        temp.replace(destfile)
 
-        os.rename(tempfile, destfile)
-
+    @override
     def delete(self, package):
-        filename = self.get_path(package)
-        meta_file = self.get_metadata_path(package)
-        os.unlink(filename)
+        path = self.get_path(package)
+        path.unlink()
+        # Metadata file may not exist
+        self.get_metadata_path(package).unlink(missing_ok=True)
+        version_dir = path.parent
         try:
-            os.unlink(meta_file)
-        except OSError:
-            # Metadata file may not exist
-            pass
-        version_dir = os.path.dirname(filename)
-        try:
-            os.rmdir(version_dir)
-        except OSError:
-            return
-        package_dir = os.path.dirname(version_dir)
-        try:
-            os.rmdir(package_dir)
+            version_dir.rmdir()
+            version_dir.parent.rmdir()
         except OSError:
             return
 
+    @override
     def open(self, package):
-        filename = self.get_path(package)
-        return open(filename, "rb")
+        return self.get_path(package).open("rb")

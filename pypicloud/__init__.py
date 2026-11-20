@@ -1,4 +1,5 @@
-""" S3-backed pypi server """
+"""S3-backed pypi server"""
+
 import calendar
 import datetime
 import logging
@@ -65,8 +66,7 @@ def includeme(config):
     # manually delete the cookie.
     settings.setdefault("session.invalidate_corrupt", "true")
     config.include("pyramid_beaker")
-    config.include("pyramid_duh")
-    config.include("pyramid_duh.auth")
+    config.include("pypicloud.duh")
     config.include("pyramid_rpc.xmlrpc")
 
     # Sometimes we need to run things after uWSGI forks.
@@ -144,7 +144,9 @@ def includeme(config):
     modes = ("redirect", "cache", "none")
     if fallback_mode not in modes:
         raise ValueError(
-            "Invalid value for 'pypi.fallback'. " "Must be one of %s" % ", ".join(modes)
+            "Invalid value for 'pypi.fallback'. Must be one of {}".format(
+                ", ".join(modes)
+            )
         )
     config.registry.fallback = fallback_mode
     config.registry.always_show_upstream = always_show_upstream
@@ -188,7 +190,7 @@ def includeme(config):
 
     cache_max_age = int(settings.get("pyramid.cache_max_age", 3600))
     config.add_static_view(
-        name="static/%s" % __version__,
+        name=f"static/{__version__}",
         path="pypicloud:static",
         cache_max_age=cache_max_age,
     )

@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
-""" Tests for database cache implementations """
+"""Tests for database cache implementations"""
+
 import calendar
 import os
 import unittest
 from io import BytesIO
+from unittest.mock import ANY, MagicMock, patch
 
 import redis
 import transaction
 from dynamo3 import Throughput
 from flywheel.fields.types import UTC
-from mock import ANY, MagicMock, patch
 from pyramid.testing import DummyRequest
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
@@ -20,13 +20,15 @@ from pypicloud.storage import IStorage
 from pypicloud.util import EnvironSettings
 
 from . import DummyAccess, DummyCache, DummyStorage, make_package
-from .db_utils import get_mysql_url, get_postgres_url, get_sqlite_url
-
-# pylint: disable=W0707
+from .db_utils import (
+    configure_dynamo_cache,
+    get_mysql_url,
+    get_postgres_url,
+    get_sqlite_url,
+)
 
 
 class TestBaseCache(unittest.TestCase):
-
     """Tests for the caching base class"""
 
     def test_equality(self):
@@ -185,7 +187,6 @@ class TestBaseCache(unittest.TestCase):
 
 
 class TestSQLiteCache(unittest.TestCase):
-
     """Tests for the SQLAlchemy cache"""
 
     @classmethod
@@ -194,18 +195,18 @@ class TestSQLiteCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestSQLiteCache, cls).setUpClass()
+        super().setUpClass()
         db_url = cls.get_db_url()
         settings = EnvironSettings(
             {"pypi.storage": "tests.DummyStorage", "db.url": db_url}, {}
         )
         try:
             cls.kwargs = SQLCache.configure(settings)
-        except OperationalError:
-            raise unittest.SkipTest(f"Couldn't connect to database {db_url}")
+        except OperationalError as e:
+            raise unittest.SkipTest(f"Couldn't connect to database {db_url}") from e
 
     def setUp(self):
-        super(TestSQLiteCache, self).setUp()
+        super().setUp()
         transaction.begin()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
@@ -215,7 +216,7 @@ class TestSQLiteCache(unittest.TestCase):
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestSQLiteCache, self).tearDown()
+        super().tearDown()
         transaction.abort()
         self.sql.query(SQLPackage).delete()
         transaction.commit()
@@ -335,7 +336,7 @@ class TestSQLiteCache(unittest.TestCase):
         ]
         self.sql.add_all(pkgs)
         saved_pkgs = self.db.distinct()
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_search_or(self):
         """search() returns packages that match the query"""
@@ -381,7 +382,7 @@ class TestSQLiteCache(unittest.TestCase):
         self.db.upload("pkg1-1.1.tar.gz", BytesIO(b"test1234"), "pkg1", "1.1")
         p1 = self.db.upload("pkg1a2.tar.gz", BytesIO(b"test1234"), "pkg1", "1.1.1a2")
         p2 = self.db.upload("pkg2.tar.gz", BytesIO(b"test1234"), "pkg2", "0.1dev2")
-        s1, s2 = self.db.summary()  # pylint: disable=E0632
+        s1, s2 = self.db.summary()
         # Order them correctly. assertCountEqual isn't playing nice in py2.6
         if s1["name"] == "pkg2":
             s1, s2 = s2, s1
@@ -453,12 +454,11 @@ class TestPostgresCache(TestSQLiteCache):
 
 
 class TestRedisCache(unittest.TestCase):
-
     """Tests for the redis cache"""
 
     @classmethod
     def extra_settings(cls):
-        return dict()
+        return {}
 
     @classmethod
     def get_redis_url(cls):
@@ -469,7 +469,7 @@ class TestRedisCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super(TestRedisCache, cls).setUpClass()
+        super().setUpClass()
         redis_url = cls.get_redis_url()
 
         settings = {
@@ -483,17 +483,17 @@ class TestRedisCache(unittest.TestCase):
             cls.redis.flushdb()
         except redis.exceptions.ConnectionError:
             msg = f"Redis not found at {redis_url}"
-            setattr(cls, "setUp", lambda cls: unittest.TestCase.skipTest(cls, msg))
+            cls.setUp = lambda cls: unittest.TestCase.skipTest(cls, msg)
 
     def setUp(self):
-        super(TestRedisCache, self).setUp()
+        super().setUp()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
         self.db = RedisCache(self.request, **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestRedisCache, self).tearDown()
+        super().tearDown()
         self.redis.flushdb()
 
     def assert_in_redis(self, pkg):
@@ -502,7 +502,7 @@ class TestRedisCache(unittest.TestCase):
         data = self.redis.hgetall(self.db.redis_key(pkg.filename))
         dt = pkg.last_modified
         lm = calendar.timegm(dt.utctimetuple()) + dt.microsecond / 1000000.0
-        lm_str = ("%.6f" % lm).rstrip("0").rstrip(".")
+        lm_str = (f"{lm:.6f}").rstrip("0").rstrip(".")
         pkg_data = {
             "name": pkg.name,
             "version": pkg.version,
@@ -628,7 +628,7 @@ class TestRedisCache(unittest.TestCase):
             self.db.save(pkg)
         saved_pkgs = self.db.distinct()
 
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_delete_package(self):
         """Deleting the last package of a name removes from distinct()"""
@@ -755,7 +755,6 @@ class TestRedisCache(unittest.TestCase):
 
 
 class TestClusteredRedisCache(TestRedisCache):
-
     """Tests for the clustered redis cache"""
 
     @classmethod
@@ -773,39 +772,26 @@ class TestClusteredRedisCache(TestRedisCache):
 class TestDynamoCache(unittest.TestCase):
     """Tests for the DynamoCache"""
 
-    dynamo = None
-
     @classmethod
     def setUpClass(cls):
-        super(TestDynamoCache, cls).setUpClass()
-        host = cls.dynamo.host[cls.dynamo.host.index("//") + 2 :]
-        host, port = host.split(":")
-        settings = {
-            "pypi.storage": "tests.DummyStorage",
-            "db.region_name": "us-east-1",
-            "db.host": host,
-            "db.port": port,
-            "db.namespace": "test.",
-            "db.aws_access_key_id": "",
-            "db.aws_secret_access_key": "",
-        }
-        cls.kwargs = DynamoCache.configure(settings)
+        super().setUpClass()
+        cls.kwargs = configure_dynamo_cache()
         cls.engine = cls.kwargs["engine"]
 
     @classmethod
     def tearDownClass(cls):
-        super(TestDynamoCache, cls).tearDownClass()
+        super().tearDownClass()
         cls.engine.delete_schema()
 
     def setUp(self):
-        super(TestDynamoCache, self).setUp()
+        super().setUp()
         self.request = DummyRequest()
         self.access = self.request.access = DummyAccess(self.request)
         self.db = DynamoCache(self.request, **self.kwargs)
         self.storage = self.db.storage = MagicMock(spec=IStorage)
 
     def tearDown(self):
-        super(TestDynamoCache, self).tearDown()
+        super().tearDown()
         for model in (DynamoPackage, PackageSummary):
             self.engine.scan(model).delete()
 
@@ -901,7 +887,7 @@ class TestDynamoCache(unittest.TestCase):
         ]
         self._save_pkgs(*pkgs)
         saved_pkgs = self.db.distinct()
-        self.assertCountEqual(saved_pkgs, set([p.name for p in pkgs]))
+        self.assertCountEqual(saved_pkgs, {p.name for p in pkgs})
 
     def test_search_or(self):
         """search() returns packages that match the query"""
@@ -982,13 +968,12 @@ class TestDynamoCache(unittest.TestCase):
 
     def test_clear_all_keep_throughput(self):
         """Calling clear_all will keep same table throughput"""
-        throughput = {}
         for model in (DynamoPackage, PackageSummary):
             tablename = model.meta_.ddb_tablename(self.engine.namespace)
-            desc = self.dynamo.describe_table(tablename)
-            self.dynamo.update_table(desc.name, Throughput(7, 7))
+            desc = self.engine.dynamo.describe_table(tablename)
+            self.engine.dynamo.update_table(desc.name, Throughput(7, 7))
             for index in desc.global_indexes:
-                self.dynamo.update_table(
+                self.engine.dynamo.update_table(
                     desc.name, global_indexes={index.name: Throughput(7, 7)}
                 )
 
@@ -996,7 +981,7 @@ class TestDynamoCache(unittest.TestCase):
 
         for model in (DynamoPackage, PackageSummary):
             tablename = model.meta_.ddb_tablename(self.engine.namespace)
-            desc = self.dynamo.describe_table(tablename)
+            desc = self.engine.dynamo.describe_table(tablename)
             self.assertEqual(desc.throughput.read, 7)
             self.assertEqual(desc.throughput.write, 7)
             for index in desc.global_indexes:

@@ -1,12 +1,10 @@
-""" Views for simple api calls that return json data """
+"""Views for simple api calls that return json data"""
+
 import logging
 import posixpath
 from tempfile import TemporaryFile
 
-# pylint: disable=E0611
 from paste.httpheaders import CACHE_CONTROL, CONTENT_DISPOSITION
-
-# pylint: enable=E0611
 from pyramid.httpexceptions import (
     HTTPBadRequest,
     HTTPConflict,
@@ -15,9 +13,9 @@ from pyramid.httpexceptions import (
 )
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.view import view_config
-from pyramid_duh import addslash, argify
 from smart_open import open as _open
 
+from pypicloud.duh import addslash, argify
 from pypicloud.route import (
     APIPackageFileResource,
     APIPackageResource,
@@ -38,10 +36,7 @@ LOG = logging.getLogger(__name__)
 @argify
 def all_packages(request, verbose=False):
     """List all packages"""
-    if verbose:
-        packages = request.db.summary()
-    else:
-        packages = request.db.distinct()
+    packages = request.db.summary() if verbose else request.db.distinct()
     i = 0
     while i < len(packages):
         package = packages[i]
@@ -74,7 +69,8 @@ def package_versions(context, request):
 def fetch_dist(request, url, name, version, summary, requires_python):
     """Fetch a Distribution and upload it to the storage backend"""
     filename = posixpath.basename(url)
-    data_fp = TemporaryFile()  # will be closed by garbage collector
+    # Closed by the caller, which reads from it after this function returns
+    data_fp = TemporaryFile()  # noqa: SIM115
 
     with _open(url, "rb", compression="disable") as url_fp:
         for chunk in stream_file(url_fp):
@@ -173,7 +169,7 @@ def delete_package(context, request):
     """Delete a package"""
     package = request.db.fetch(context.filename)
     if package is None:
-        return HTTPBadRequest("Could not find %s" % context.filename)
+        return HTTPBadRequest(f"Could not find {context.filename}")
 
     try:
         request.db.delete(package)

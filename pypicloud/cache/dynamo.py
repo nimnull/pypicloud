@@ -1,32 +1,52 @@
-""" Store package data in DynamoDB """
+"""Store package data in DynamoDB"""
+
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import override
 
 from dynamo3 import DynamoDBConnection
-from pkg_resources import parse_version
 from pyramid.settings import asbool, aslist
 
-from pypicloud.dateutil import UTC, utcnow
 from pypicloud.models import Package
 
 from .base import ICache
 
 try:
-    from flywheel import Engine, Field, GlobalIndex, Model, __version__
-
-    if parse_version(__version__) < parse_version("0.2.0"):  # pragma: no cover
-        raise ValueError("Pypicloud requires flywheel>=0.2.0")
+    from flywheel import Engine, Field, GlobalIndex, Model
+    from flywheel.fields.types import DateTimeType, register_type
 except ImportError as err:  # pragma: no cover
     raise ImportError(
-        "You must 'pip install flywheel' before using " "DynamoDB as the cache database"
+        "You must 'pip install flywheel' before using DynamoDB as the cache database"
     ) from err
 
 LOG = logging.getLogger(__name__)
 
 
-class DynamoPackage(Package, Model):
+class DecimalDateTimeType(DateTimeType):
+    """Datetime field that loads the Decimal timestamps DynamoDB returns.
 
+    datetime.fromtimestamp() takes an int or a float only, so the seconds and the
+    microseconds are split off the Decimal before conversion. Returns an aware UTC
+    datetime unless the field was declared naive.
+    """
+
+    @override
+    def ddb_load(self, value):
+        microseconds = int(1000000 * (value - int(value)))
+        loaded = datetime.fromtimestamp(int(value), UTC).replace(
+            microsecond=microseconds
+        )
+        if self.naive:
+            return loaded.replace(tzinfo=None)
+        return loaded
+
+
+# Replaces flywheel's own datetime type for every Field(data_type=datetime)
+register_type(DecimalDateTimeType)
+
+
+class DynamoPackage(Package, Model):
     """Python package stored in DynamoDB"""
 
     __metadata__ = {"global_indexes": [GlobalIndex("name-index", "name")]}
@@ -38,14 +58,13 @@ class DynamoPackage(Package, Model):
     data = Field(data_type=dict)
 
     def __init__(self, *args, **kwargs):
-        super(DynamoPackage, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         # DynamoDB doesn't play nice with empty strings.
         if not self.summary:
             self.summary = None
 
 
 class PackageSummary(Model):
-
     """Aggregate data about packages"""
 
     name = Field(hash_key=True)
@@ -53,26 +72,27 @@ class PackageSummary(Model):
     last_modified = Field(data_type=datetime)
 
     def __init__(self, package):
-        super(PackageSummary, self).__init__(package.name)
+        super().__init__(package.name)
         self.last_modified = package.last_modified.replace(tzinfo=UTC)
         self.summary = package.summary
 
 
 class DynamoCache(ICache):
-
     """Caching database that uses DynamoDB"""
 
     def __init__(self, request=None, engine=None, graceful_reload=False, **kwargs):
-        super(DynamoCache, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.engine = engine
         self.graceful_reload = graceful_reload
 
+    @override
     def new_package(self, *args, **kwargs):
         return DynamoPackage(*args, **kwargs)
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(DynamoCache, cls).configure(settings)
+        kwargs = super().configure(settings)
 
         access_key = settings.get("db.aws_access_key_id")
         secret_key = settings.get("db.aws_secret_access_key")
@@ -113,22 +133,27 @@ class DynamoCache(ICache):
         engine.create_schema()
         return kwargs
 
+    @override
     def fetch(self, filename):
         return self.engine.get(DynamoPackage, filename=filename)
 
+    @override
     def all(self, name):
         return sorted(self.engine.query(DynamoPackage).filter(name=name), reverse=True)
 
+    @override
     def distinct(self):
         names = set()
         for summary in self.engine.scan(PackageSummary):
             names.add(summary.name)
         return sorted(names)
 
+    @override
     def summary(self):
         summaries = sorted(self.engine.scan(PackageSummary), key=lambda s: s.name)
         return [s.__json__() for s in summaries]
 
+    @override
     def clear(self, package):
         self.engine.delete(package)
         self._maybe_delete_summary(package.name)
@@ -145,6 +170,7 @@ class DynamoCache(ICache):
             LOG.info("Removing package summary %s", package_name)
             self.engine.delete_key(PackageSummary, name=package_name)
 
+    @override
     def clear_all(self):
         # We're replacing the schema, so make sure we save and restore the
         # current table/index throughput
@@ -166,16 +192,18 @@ class DynamoCache(ICache):
         self.engine.delete_schema()
         self.engine.create_schema(throughput=throughput)
 
+    @override
     def save(self, package):
         summary = PackageSummary(package)
         self.engine.save([package, summary], overwrite=True)
 
+    @override
     def reload_from_storage(self, clear=True):
         if not self.graceful_reload:
-            return super(DynamoCache, self).reload_from_storage(clear)
+            return super().reload_from_storage(clear)
         LOG.info("Rebuilding cache from storage")
         # Log start time
-        start = utcnow()
+        start = datetime.now(UTC)
         # Fetch packages from storage s1
         s1 = set(self.storage.list(self.new_package))
         # Fetch cache packages c1
@@ -244,6 +272,7 @@ class DynamoCache(ICache):
         for name in removed:
             self._maybe_delete_summary(name)
 
+    @override
     def check_health(self):
         try:
             self.engine.scan(PackageSummary).first()

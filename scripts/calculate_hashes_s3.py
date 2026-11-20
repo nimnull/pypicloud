@@ -25,6 +25,6 @@ for page in paginator:
         resp = s3.get_object(Bucket=args.s3_bucket, Key=key)
         data = resp["Body"].read()
         metadata["hash_sha256"] = hashlib.sha256(data).hexdigest()
-        metadata["hash_md5"] = hashlib.md5(data).hexdigest()
+        metadata["hash_md5"] = hashlib.md5(data, usedforsecurity=False).hexdigest()
         s3.put_object(Bucket=args.s3_bucket, Key=key, Body=data, Metadata=metadata)
-        print("Updated metadata on {0}".format(key))
+        print(f"Updated metadata on {key}")

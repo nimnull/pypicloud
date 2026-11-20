@@ -1,23 +1,14 @@
-""" Utilities """
+"""Utilities"""
+
+import contextlib
 import logging
 import os
 import re
 import time
 import unicodedata
-from typing import (
-    IO,
-    Any,
-    AnyStr,
-    Callable,
-    Dict,
-    ItemsView,
-    Iterator,
-    KeysView,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from collections.abc import Callable, ItemsView, Iterator, KeysView
+from io import Reader
+from typing import Any, Self
 
 from distlib.locators import Locator
 from distlib.util import split_filename
@@ -33,7 +24,7 @@ class PackageParseError(ValueError):
     pass
 
 
-def parse_filename(filename: str, name: Optional[str] = None) -> Tuple[str, str]:
+def parse_filename(filename: str, name: str | None = None) -> tuple[str, str]:
     """Parse a name and version out of a filename"""
     version = None
     for ext in ALL_EXTENSIONS:
@@ -41,15 +32,14 @@ def parse_filename(filename: str, name: Optional[str] = None) -> Tuple[str, str]
             if ext == ".whl":
                 wheel = Wheel(filename)
                 return wheel.name, wheel.version
-            trimmed = filename[: -len(ext)]
-            parsed = split_filename(trimmed, name)
+            parsed = split_filename(filename.removesuffix(ext), name)
             if parsed is None:
                 break
             else:
                 parsed_name, version = parsed[:2]
             break
     if version is None:
-        raise PackageParseError("Cannot parse package file '%s'" % filename)
+        raise PackageParseError(f"Cannot parse package file '{filename}'")
     if name is None:
         name = parsed_name
     return normalize_name(name), version
@@ -74,7 +64,7 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def normalize_metadata_value(value: Union[str, bytes]) -> str:
+def normalize_metadata_value(value: str | bytes) -> str:
     """Strip non-ASCII characters from metadata values"""
     if isinstance(value, bytes):
         value = value.decode("utf-8")
@@ -83,7 +73,7 @@ def normalize_metadata_value(value: Union[str, bytes]) -> str:
     return re.sub(r"\s+", " ", value)
 
 
-def normalize_metadata(metadata: Dict[str, Union[str, bytes]]) -> Dict[str, str]:
+def normalize_metadata(metadata: dict[str, str | bytes]) -> dict[str, str]:
     """
     Strip non-ASCII characters from metadata values
     and replace "_" in metadata keys to "-"
@@ -94,7 +84,7 @@ def normalize_metadata(metadata: Dict[str, Union[str, bytes]]) -> Dict[str, str]
     }
 
 
-def create_matcher(queries: List[str], query_type: str) -> Callable[[str], bool]:
+def create_matcher(queries: list[str], query_type: str) -> Callable[[str], bool]:
     """
     Create a matcher for a list of queries
 
@@ -113,12 +103,14 @@ def create_matcher(queries: List[str], query_type: str) -> Callable[[str], bool]
     """
     queries = [query.lower() for query in queries]
     if query_type == "or":
-        return lambda x: any((q in x.lower() for q in queries))
+        return lambda x: any(q in x.lower() for q in queries)
     else:
-        return lambda x: all((q in x.lower() for q in queries))
+        return lambda x: all(q in x.lower() for q in queries)
 
 
-def stream_file(fp: IO[AnyStr], chunk_size: int = CHUNK_SIZE) -> Iterator[AnyStr]:
+def stream_file[S: (bytes, str)](
+    fp: Reader[S], chunk_size: int = CHUNK_SIZE
+) -> Iterator[S]:
     """
     Read an (opened) file in chunks of chunk_size bytes
     """
@@ -130,7 +122,7 @@ def stream_file(fp: IO[AnyStr], chunk_size: int = CHUNK_SIZE) -> Iterator[AnyStr
 
 
 class EnvironSettings:
-    def __init__(self, settings: Dict[str, Any], env: Optional[Dict[str, str]] = None):
+    def __init__(self, settings: dict[str, Any], env: dict[str, str] | None = None):
         self._settings = settings
         if env is None:
             self._env = dict(os.environ)
@@ -169,20 +161,20 @@ class EnvironSettings:
         return str(self._settings)
 
     def __repr__(self) -> str:
-        return "EnvironSettings(%s)" % self._settings
+        return f"EnvironSettings({self._settings})"
 
     def read_prefix_from_environ(self, prefix: str) -> None:
         if not prefix:
             return
         # Make sure the prefix has a '.' at the end (e.g. "sqlalchemy.")
-        if prefix[-1] == "_":
-            prefix = prefix[:-1] + "."
-        elif prefix[-1] != ".":
+        if prefix.endswith("_"):
+            prefix = prefix.removesuffix("_") + "."
+        elif not prefix.endswith("."):
             prefix = prefix + "."
         env_prefix = self._get_environ_key(prefix)
         for key, val in self._env.items():
             if key.startswith(env_prefix):
-                setting_key = prefix + key[len(env_prefix) :].lower()
+                setting_key = prefix + key.removeprefix(env_prefix).lower()
                 self._settings[setting_key] = val
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -213,7 +205,7 @@ class EnvironSettings:
 
     def get_as_dict(
         self, prefix: str, **kwargs: Callable[[Any], Any]
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Convenience method for fetching settings
 
@@ -236,8 +228,8 @@ class EnvironSettings:
                 computed[name] = fxn(val)
         return computed
 
-    def clone(self) -> "EnvironSettings":
-        return EnvironSettings(dict(self._settings), dict(self._env))
+    def clone(self) -> Self:
+        return type(self)(dict(self._settings), dict(self._env))
 
 
 class TimedCache(dict):
@@ -258,14 +250,14 @@ class TimedCache(dict):
     """
 
     def __init__(
-        self, cache_time: Optional[int], factory: Optional[Callable[[Any], Any]] = None
+        self, cache_time: int | None, factory: Callable[[Any], Any] | None = None
     ):
-        super(TimedCache, self).__init__()
+        super().__init__()
         if cache_time is not None and cache_time < 0:
             raise ValueError("cache_time cannot be negative")
         self._cache_time = cache_time
         self._factory = factory
-        self._times = {}  # type: Dict[str, float]
+        self._times: dict[str, float] = {}
 
     def _has_expired(self, key):
         """Check if a key is both present and expired"""
@@ -281,22 +273,22 @@ class TimedCache(dict):
 
     def __contains__(self, key):
         self._evict(key)
-        return super(TimedCache, self).__contains__(key)
+        return super().__contains__(key)
 
     def __delitem__(self, key):
         del self._times[key]
-        super(TimedCache, self).__delitem__(key)
+        super().__delitem__(key)
 
     def __setitem__(self, key, value):
         if self._cache_time == 0:
             return
         self._times[key] = time.time()
-        super(TimedCache, self).__setitem__(key, value)
+        super().__setitem__(key, value)
 
     def __getitem__(self, key):
         self._evict(key)
         try:
-            value = super(TimedCache, self).__getitem__(key)
+            value = super().__getitem__(key)
         except KeyError:
             if self._factory:
                 value = self._factory(key)
@@ -309,7 +301,7 @@ class TimedCache(dict):
 
     def get(self, key, default=None):
         self._evict(key)
-        value = super(TimedCache, self).get(key, SENTINEL)
+        value = super().get(key, SENTINEL)
         if value is SENTINEL:
             if self._factory is not None:
                 value = self._factory(key)
@@ -338,12 +330,10 @@ class TimedCache(dict):
         """
         if expiration is not None:
             if expiration <= 0:
-                try:
+                with contextlib.suppress(KeyError):
                     del self[key]
-                except KeyError:
-                    pass
                 return
             expiration = time.time() + expiration - self._cache_time
 
         self._times[key] = expiration
-        super(TimedCache, self).__setitem__(key, value)
+        super().__setitem__(key, value)

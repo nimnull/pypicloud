@@ -1,13 +1,12 @@
-""" Tests for pypicloud utilities """
-import unittest
+"""Tests for pypicloud utilities"""
 
-from mock import patch
+import unittest
+from unittest.mock import patch
 
 from pypicloud import util
 
 
 class TestParse(unittest.TestCase):
-
     """Tests for parse_filename"""
 
     def test_valid_source(self):
@@ -40,7 +39,6 @@ class TestParse(unittest.TestCase):
 
 
 class TestNormalizeName(unittest.TestCase):
-
     """Tests for normalize_name"""
 
     def test_normalize_namespace_package(self):
@@ -49,7 +47,6 @@ class TestNormalizeName(unittest.TestCase):
 
 
 class TestTimedCache(unittest.TestCase):
-
     """Tests for the TimedCache class"""
 
     @patch("pypicloud.util.time")
@@ -62,7 +59,7 @@ class TestTimedCache(unittest.TestCase):
         self.assertEqual(cache["a"], 1)
         time.time.return_value = 8
         with self.assertRaises(KeyError):
-            cache["a"]  # pylint: disable=W0104
+            cache["a"]
 
     @patch("pypicloud.util.time")
     def test_evict_get(self, time):
@@ -95,7 +92,7 @@ class TestTimedCache(unittest.TestCase):
         """When factory function returns None, no value"""
         cache = util.TimedCache(None, lambda a: None)
         with self.assertRaises(KeyError):
-            cache["a"]  # pylint: disable=W0104
+            cache["a"]
 
     def test_factory_get(self):
         """Factory function populates cache from .get()"""

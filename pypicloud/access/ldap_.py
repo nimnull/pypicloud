@@ -1,7 +1,9 @@
 """LDAP authentication plugin for pypicloud."""
+
 import logging
 from collections import namedtuple
 from functools import wraps
+from typing import override
 
 from pyramid.settings import asbool, aslist
 
@@ -44,7 +46,7 @@ def reconnect(func):
 User = namedtuple("User", ["username", "dn", "is_admin"])
 
 
-class LDAP(object):
+class LDAP:
     """Handles interactions with the remote LDAP server"""
 
     def __init__(
@@ -73,13 +75,12 @@ class LDAP(object):
         if user_dn_format is not None:
             if base_dn is not None or user_search_filter is not None:
                 raise ValueError(
-                    "Cannot use user_dn_format with base_dn " "and user_search_filter"
+                    "Cannot use user_dn_format with base_dn and user_search_filter"
                 )
         else:
             if base_dn is None or user_search_filter is None:
                 raise ValueError(
-                    "Must provide user_dn_format or both base_dn "
-                    "and user_search_filter"
+                    "Must provide user_dn_format or both base_dn and user_search_filter"
                 )
         self._admin_field = admin_field
         self._admin_group_dn = admin_group_dn
@@ -178,10 +179,7 @@ class LDAP(object):
             LOG.debug("LDAP user %r not found", username)
             return None
         if len(results) > 1:
-            err_msg = "More than one user found for %r: %r" % (
-                username,
-                [r[0] for r in results],
-            )
+            err_msg = f"More than one user found for {username!r}: {[r[0] for r in results]!r}"
             if self._ignore_multiple_results:
                 LOG.warning(err_msg)
             else:
@@ -190,19 +188,15 @@ class LDAP(object):
         LOG.debug("dn: %r, attributes %r", dn, attributes)
 
         is_admin = False
-        if self._admin_field is not None:
-            if self._admin_field in attributes:
-                is_admin = bool(
-                    self._admin_value.intersection(
-                        [
-                            self._decode_attribute(x)
-                            for x in attributes[self._admin_field]
-                        ]
-                    )
+        if self._admin_field is not None and self._admin_field in attributes:
+            is_admin = bool(
+                self._admin_value.intersection(
+                    [self._decode_attribute(x) for x in attributes[self._admin_field]]
                 )
+            )
         if not is_admin and self._admin_group_dn:
             user_dn = self._user_dn_format.format(username=username)
-            search_filter = "(%s=%s)" % (self.admin_member_type, user_dn)
+            search_filter = f"({self.admin_member_type}={user_dn})"
             LOG.debug(
                 "Searching admin group %s for %s", self._admin_group_dn, search_filter
             )
@@ -259,7 +253,7 @@ class LDAPAccessBackend(IAccessBackend):
     """
 
     def __init__(self, request=None, conn=None, fallback_factory=None, **kwargs):
-        super(LDAPAccessBackend, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.conn = conn
         self._fallback = None
         self._fallback_factory = fallback_factory
@@ -271,8 +265,9 @@ class LDAPAccessBackend(IAccessBackend):
         return self._fallback
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(LDAPAccessBackend, cls).configure(settings)
+        kwargs = super().configure(settings)
         conn = LDAP(
             admin_field=settings.get("auth.ldap.admin_field"),
             admin_group_dn=settings.get("auth.ldap.admin_group_dn"),
@@ -303,50 +298,60 @@ class LDAPAccessBackend(IAccessBackend):
 
         return kwargs
 
+    @override
     def _get_password_hash(self, *_):  # pragma: no cover
         raise RuntimeError("LDAP should never call _get_password_hash")
 
+    @override
     def verify_user(self, username, password):
         return self.conn.verify_user(username, password)
 
+    @override
     def groups(self, username=None):
         if self.fallback is not None:
             return self.fallback.groups(username)
         # LDAP doesn't support groups by default
         return []
 
+    @override
     def group_members(self, group):
         if self.fallback is not None:
             return self.fallback.group_members(group)
         # LDAP doesn't support groups by default
         return []
 
+    @override
     def is_admin(self, username):
         if not username:
             return False
         user = self.conn.get_user(username)
         return user is not None and user.is_admin
 
+    @override
     def group_permissions(self, package):
         if self.fallback is not None:
             return self.fallback.group_permissions(package)
         return {}
 
+    @override
     def user_permissions(self, package):
         if self.fallback is not None:
             return self.fallback.user_permissions(package)
         return {}
 
+    @override
     def user_package_permissions(self, username):
         if self.fallback is not None:
             return self.fallback.user_package_permissions(username)
         return []
 
+    @override
     def group_package_permissions(self, group):
         if self.fallback is not None:
             return self.fallback.group_package_permissions(group)
         return []
 
+    @override
     def user_data(self, username=None):
         if username is None:
             if self.fallback is not None:
@@ -359,6 +364,7 @@ class LDAPAccessBackend(IAccessBackend):
                 "groups": self.groups(username),
             }
 
+    @override
     def check_health(self):
         try:
             self.conn.test_connection()

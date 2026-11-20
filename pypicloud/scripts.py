@@ -1,4 +1,5 @@
-""" Commandline scripts """
+"""Commandline scripts"""
+
 import argparse
 import getpass
 import gzip
@@ -7,11 +8,10 @@ import logging
 import os
 import sys
 from base64 import b64encode
-from typing import Optional
+from importlib import resources
 
 import transaction
 from jinja2 import Template
-from pkg_resources import resource_string  # pylint: disable=E0611
 from pyramid.paster import bootstrap
 
 from pypicloud.access import SCHEMES, get_pwd_context
@@ -31,10 +31,7 @@ def gen_password(argv=None):
         choices=SCHEMES,
     )
     args = parser.parse_args(argv)
-    if args.i:
-        password = sys.stdin.readline()
-    else:
-        password = _get_password()
+    password = sys.stdin.readline() if args.i else _get_password()
     print(_gen_password(password, args.s, args.r))
 
 
@@ -50,7 +47,7 @@ def _get_password():
 
 
 def _gen_password(
-    password: str, scheme: Optional[str] = None, rounds: Optional[int] = None
+    password: str, scheme: str | None = None, rounds: int | None = None
 ) -> str:
     pwd_context = get_pwd_context(scheme, rounds)
     return pwd_context.hash(password)
@@ -80,12 +77,12 @@ def prompt_option(text, choices, default=NO_DEFAULT):
     """Prompt the user to choose one of a list of options"""
     while True:
         for i, msg in enumerate(choices):
-            print("[%d] %s" % (i + 1, msg))
+            print(f"[{i + 1}] {msg}")
         response = prompt(text, default=default)
         try:
             idx = int(response) - 1
             return choices[idx]
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             print("Invalid choice\n")
 
 
@@ -93,11 +90,8 @@ def promptyn(msg, default=None):
     """Display a blocking prompt until the user confirms"""
     while True:
         yes = "Y" if default else "y"
-        if default or default is None:
-            no = "n"
-        else:
-            no = "N"
-        confirm = prompt("%s [%s/%s]" % (msg, yes, no), "").lower()
+        no = "n" if default or default is None else "N"
+        confirm = prompt(f"{msg} [{yes}/{no}]", "").lower()
         if confirm in ("y", "yes"):
             return True
         elif confirm in ("n", "no"):
@@ -152,7 +146,7 @@ def make_config(argv=None):
     args = parser.parse_args(argv)
 
     if args.outfile is not None and os.path.exists(args.outfile):
-        msg = "'%s' already exists. Overwrite?" % args.outfile
+        msg = f"'{args.outfile}' already exists. Overwrite?"
         if not promptyn(msg, False):
             return
 
@@ -222,8 +216,10 @@ def make_config(argv=None):
             data["venv"] = sys.prefix
         data["wsgi"] = "uwsgi"
 
-    tmpl_str = resource_string("pypicloud", "templates/config.ini.jinja2").decode(
-        "utf-8"
+    tmpl_str = (
+        resources.files("pypicloud")
+        .joinpath("templates/config.ini.jinja2")
+        .read_text(encoding="utf-8")
     )
     template = Template(tmpl_str)
 
@@ -235,7 +231,7 @@ def make_config(argv=None):
         with open(args.outfile, "w", encoding="utf-8") as ofile:
             ofile.write(config_file)
 
-        print("Config file written to '%s'" % args.outfile)
+        print(f"Config file written to '{args.outfile}'")
 
 
 def migrate_packages(argv=None):
@@ -270,7 +266,7 @@ def migrate_packages(argv=None):
     new_env = bootstrap(args.config_to)
     new_storage = new_env["request"].db.storage
     for package in all_packages:
-        print("Migrating %s" % package)
+        print(f"Migrating {package}")
         with old_storage.open(package) as data:
             # we need to recalculate the path for the new storage config
             package.data.pop("path", None)

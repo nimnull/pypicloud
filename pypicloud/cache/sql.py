@@ -1,28 +1,27 @@
-""" Store package data in a SQL database """
+"""Store package data in a SQL database"""
+
 import json
 import logging
+from datetime import UTC, datetime
+from typing import override
 
 import zope.sqlalchemy
 from pyramid.path import DottedNameResolver
 from pyramid.settings import asbool
 from sqlalchemy import (
-    Column,
     DateTime,
     String,
     Text,
     and_,
-    distinct,
     engine_from_config,
     or_,
 )
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import Mutable
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.sql import func
 from sqlalchemy.types import TEXT, TypeDecorator
 
-from pypicloud.dateutil import UTC, utcnow
 from pypicloud.models import Package
 from pypicloud.util import EnvironSettings
 
@@ -30,14 +29,16 @@ from .base import ICache
 
 LOG = logging.getLogger(__name__)
 
-Base = declarative_base()  # pylint: disable=C0103
+
+class Base(DeclarativeBase):
+    """Declarative base for the cache tables"""
 
 
-class JSONEncodedDict(TypeDecorator):  # pylint: disable=W0223
-
+class JSONEncodedDict(TypeDecorator):
     "Represents an immutable structure as a json-encoded string."
 
     impl = TEXT
+    cache_ok = True
 
     def process_bind_param(self, value, dialect):
         if value is not None:
@@ -51,7 +52,6 @@ class JSONEncodedDict(TypeDecorator):  # pylint: disable=W0223
 
 
 class MutableDict(Mutable, dict):
-
     """SQLAlchemy dict field that tracks changes"""
 
     @classmethod
@@ -83,7 +83,7 @@ class MutableDict(Mutable, dict):
 MutableDict.associate_with(JSONEncodedDict)
 
 
-class TZAwareDateTime(TypeDecorator):  # pylint: disable=W0223
+class TZAwareDateTime(TypeDecorator):
     impl = DateTime
     cache_ok = True
 
@@ -99,17 +99,18 @@ class TZAwareDateTime(TypeDecorator):  # pylint: disable=W0223
 
 
 class SQLPackage(Package, Base):
-
     """Python package stored in SQLAlchemy"""
 
     __tablename__ = "packages"
-    filename = Column(String(255, convert_unicode=True), primary_key=True)
-    name = Column(String(255, convert_unicode=True), index=True, nullable=False)
-    version = Column(String(1000, convert_unicode=True), nullable=False)
-    last_modified = Column(TZAwareDateTime(), index=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    version: Mapped[str] = mapped_column(String(1000), nullable=False)
+    last_modified: Mapped[datetime] = mapped_column(
+        TZAwareDateTime(), index=True, nullable=False
+    )
     # TEXT, as pypi does the same, and using String(N) would mismatch with pypi
-    summary = Column(Text(), nullable=True)
-    data = Column(JSONEncodedDict(), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    data: Mapped[dict] = mapped_column(JSONEncodedDict(), nullable=False)
 
 
 def create_schema(engine):
@@ -147,11 +148,10 @@ def drop_schema(engine):
 
 
 class SQLCache(ICache):
-
     """Caching database that uses SQLAlchemy"""
 
     def __init__(self, request=None, dbmaker=None, graceful_reload=False, **kwargs):
-        super(SQLCache, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.dbmaker = dbmaker
         self.db = self.dbmaker()
         self.graceful_reload = graceful_reload
@@ -159,18 +159,21 @@ class SQLCache(ICache):
         if request is not None:
             zope.sqlalchemy.register(self.db, transaction_manager=request.tm)
 
+    @override
     def new_package(self, *args, **kwargs):
         return SQLPackage(*args, **kwargs)
 
+    @override
     def reload_if_needed(self):
-        super(SQLCache, self).reload_if_needed()
+        super().reload_if_needed()
         if self.request is None:
             self.db.commit()
             self.db.close()
 
     @classmethod
+    @override
     def configure(cls, settings: EnvironSettings):
-        kwargs = super(SQLCache, cls).configure(settings)
+        kwargs = super().configure(settings)
         graceful_reload = asbool(settings.pop("db.graceful_reload", False))
         settings.read_prefix_from_environ("db.")
         engine_opts = {}
@@ -178,7 +181,7 @@ class SQLCache(ICache):
         if poolclass is not None:
             resolver = DottedNameResolver(__name__)
             engine_opts["poolclass"] = resolver.maybe_resolve(poolclass)
-        engine = engine_from_config(settings, prefix="db.", **engine_opts)
+        engine = engine_from_config(dict(settings), prefix="db.", **engine_opts)
         # Create SQL schema if not exists
         create_schema(engine)
         kwargs["dbmaker"] = sessionmaker(bind=engine)
@@ -186,23 +189,30 @@ class SQLCache(ICache):
         return kwargs
 
     @classmethod
+    @override
     def postfork(cls, **kwargs):
         # Have to dispose of connections after uWSGI forks,
         # otherwise they'll get corrupted.
         kwargs["dbmaker"].kw["bind"].dispose()
 
+    @override
     def fetch(self, filename):
         return self.db.query(SQLPackage).filter_by(filename=filename).first()
 
+    @override
     def all(self, name):
         pkgs = self.db.query(SQLPackage).filter_by(name=name).all()
         pkgs.sort(reverse=True)
         return pkgs
 
+    @override
     def distinct(self):
-        names = self.db.query(distinct(SQLPackage.name)).order_by(SQLPackage.name).all()
+        names = (
+            self.db.query(SQLPackage.name).distinct().order_by(SQLPackage.name).all()
+        )
         return [n[0] for n in names]
 
+    @override
     def search(self, criteria, query_type):
         """
         Perform a search.
@@ -240,10 +250,7 @@ class SQLCache(ICache):
 
             # Check if conditions for this column were generated
             if column_conditions:
-                if query_type == "and":
-                    operator = and_
-                else:
-                    operator = or_
+                operator = and_ if query_type == "and" else or_
                 conditions.append(operator(*column_conditions))
 
         # Piece together the queries. Refer to the method docstring for
@@ -258,6 +265,7 @@ class SQLCache(ICache):
 
         return latest_map.values()
 
+    @override
     def summary(self):
         subquery = (
             self.db.query(
@@ -286,9 +294,11 @@ class SQLCache(ICache):
             )
         return packages
 
+    @override
     def clear(self, package):
         self.db.delete(package)
 
+    @override
     def clear_all(self):
         # Release any transactions before we go reloading schema
         if self.request is None:
@@ -299,16 +309,18 @@ class SQLCache(ICache):
         drop_schema(engine)
         create_schema(engine)
 
+    @override
     def save(self, package):
         self.db.merge(package)
 
+    @override
     def reload_from_storage(self, clear=True):
         if not self.graceful_reload:
-            return super(SQLCache, self).reload_from_storage(clear)
+            return super().reload_from_storage(clear)
 
         LOG.info("Rebuilding cache from storage")
         # Log start time
-        start = utcnow()
+        start = datetime.now(UTC)
         # Fetch packages from storage s1
         s1 = set(self.storage.list(SQLPackage))
         # Fetch cache packages c1
@@ -347,6 +359,7 @@ class SQLCache(ICache):
                     SQLPackage.filename == pkg.filename
                 ).delete(synchronize_session=False)
 
+    @override
     def check_health(self):
         try:
             self.db.query(SQLPackage).first()

@@ -1,11 +1,9 @@
-""" Utilities for authentication and authorization """
+"""Utilities for authentication and authorization"""
+
 import binascii
 from base64 import b64decode
 
-# pylint: disable=E0611
 from paste.httpheaders import AUTHORIZATION, WWW_AUTHENTICATE
-
-# pylint: enable=E0611
 from pyramid.authorization import ACLAuthorizationPolicy
 from pyramid.httpexceptions import HTTPForbidden, HTTPUnauthorized
 from pyramid.interfaces import ISecurityPolicy
@@ -25,7 +23,7 @@ def get_basicauth_credentials(request):
     if authmeth.lower() == "basic":
         try:
             auth = b64decode(auth.strip()).decode("utf8")
-        except (TypeError, binascii.Error):  # can't decode
+        except TypeError, binascii.Error:  # can't decode
             return None
         try:
             login, password = auth.split(":", 1)
@@ -104,7 +102,7 @@ class PypicloudSecurityPolicy:
 def _request_login(request):
     """Return a 401 to force pip to upload its HTTP basic auth credentials"""
     response = HTTPUnauthorized()
-    realm = WWW_AUTHENTICATE.tuples('Basic realm="%s"' % request.registry.realm)
+    realm = WWW_AUTHENTICATE.tuples(f'Basic realm="{request.registry.realm}"')
     response.headers.update(realm)
     return response
 

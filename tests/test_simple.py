@@ -1,9 +1,9 @@
-""" Unit tests for the simple endpoints """
+"""Unit tests for the simple endpoints"""
+
 import unittest
 from io import BytesIO
 from types import MethodType
-
-from mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from pypicloud.auth import _request_login
 from pypicloud.views.simple import (
@@ -18,18 +18,17 @@ from pypicloud.views.simple import (
 from . import MockServerTest, make_dist, make_package
 
 
-class FileUpload(object):
+class FileUpload:
     def __init__(self, name, data):
         self.filename = name
         self.file = BytesIO(data)
 
 
 class TestSimple(MockServerTest):
-
     """Unit tests for the /simple endpoints"""
 
     def setUp(self):
-        super(TestSimple, self).setUp()
+        super().setUp()
         self.request.access = MagicMock()
 
     def test_upload(self):
@@ -114,10 +113,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "https://pypi.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "https://pypi.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"https://pypi.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"https://pypi.org/pypi/{name}/{wheelname}"
         dist = make_dist(url, name, version)
         wheel_dist = make_dist(wheel_url, name, version)
         self.request.locator.get_releases.return_value = [dist, wheel_dist]
@@ -148,10 +147,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "https://pypi.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "https://pypi.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"https://pypi.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"https://pypi.org/pypi/{name}/{wheelname}"
         dist = make_dist(url, name, version)
         wheel_dist = make_dist(wheel_url, name, version)
         self.request.locator.get_releases.return_value = [dist, wheel_dist]
@@ -179,10 +178,10 @@ class TestSimple(MockServerTest):
         self.request.locator = MagicMock()
         version = "1.1"
         name = "foo"
-        filename = "%s-%s.tar.gz" % (name, version)
-        url = "http://pypi.python.org/pypi/%s/%s" % (name, filename)
-        wheelname = "%s-%s.whl" % (name, version)
-        wheel_url = "http://pypi.python.org/pypi/%s/%s" % (name, wheelname)
+        filename = f"{name}-{version}.tar.gz"
+        url = f"http://pypi.python.org/pypi/{name}/{filename}"
+        wheelname = f"{name}-{version}.whl"
+        wheel_url = f"http://pypi.python.org/pypi/{name}/{wheelname}"
         dist = MagicMock()
         dist.name = name
         self.request.locator.get_project.return_value = {
@@ -195,7 +194,6 @@ class TestSimple(MockServerTest):
 
 
 class PackageReadTestBase(unittest.TestCase):
-
     """Base class test for reading packages"""
 
     fallback = None
@@ -372,7 +370,6 @@ class PackageReadTestBase(unittest.TestCase):
 
 
 class TestRedirect(PackageReadTestBase):
-
     """Test reading packages with fallback=redirect and always_show_upstream=false"""
 
     fallback = "redirect"
@@ -434,7 +431,6 @@ class TestRedirect(PackageReadTestBase):
 
 
 class TestRedirectAlwaysShow(PackageReadTestBase):
-
     """Test reading packages with fallback=redirect and always_show_upstream=truue"""
 
     fallback = "redirect"
@@ -494,7 +490,6 @@ class TestRedirectAlwaysShow(PackageReadTestBase):
 
 
 class TestCache(PackageReadTestBase):
-
     """Test reading packages with fallback=cache and always_show_upstream=false"""
 
     fallback = "cache"
@@ -550,7 +545,6 @@ class TestCache(PackageReadTestBase):
 
 
 class TestCacheAlwaysShow(PackageReadTestBase):
-
     """Test reading packages with fallback=cache and always_show_upstream=true"""
 
     fallback = "cache"
@@ -643,7 +637,6 @@ class TestCacheAlwaysShow(PackageReadTestBase):
 
 
 class TestNoFallback(PackageReadTestBase):
-
     """Tests for reading packages with fallback=none"""
 
     fallback = "none"

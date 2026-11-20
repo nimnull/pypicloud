@@ -1,4 +1,5 @@
-""" Classes that provide user and package permissions """
+"""Classes that provide user and package permissions"""
+
 from functools import partial
 
 from pyramid.path import DottedNameResolver
@@ -15,23 +16,39 @@ from .config import ConfigAccessBackend
 from .remote import RemoteAccessBackend
 from .sql import SQLAccessBackend
 
+__all__ = [
+    "DEFAULT_ROUNDS",
+    "SCHEMES",
+    "AWSSecretsManagerAccessBackend",
+    "ConfigAccessBackend",
+    "IAccessBackend",
+    "IMutableAccessBackend",
+    "RemoteAccessBackend",
+    "SQLAccessBackend",
+    "get_pwd_context",
+    "includeme",
+]
+
 
 def includeme(config) -> None:
     """Configure the app"""
     settings = config.get_settings()
 
     resolver = DottedNameResolver(__name__)
-    dotted_name = settings.get("pypi.auth", "config")
-    if dotted_name == "config":
-        dotted_name = ConfigAccessBackend
-    elif dotted_name == "remote":
-        dotted_name = RemoteAccessBackend
-    elif dotted_name == "sql":
-        dotted_name = SQLAccessBackend
-    elif dotted_name == "ldap":
-        dotted_name = "pypicloud.access.ldap_.LDAPAccessBackend"
-    elif dotted_name == "aws_secrets_manager":
-        dotted_name = AWSSecretsManagerAccessBackend
+    dotted_name: str | type[IAccessBackend]
+    match settings.get("pypi.auth", "config"):
+        case "config":
+            dotted_name = ConfigAccessBackend
+        case "remote":
+            dotted_name = RemoteAccessBackend
+        case "sql":
+            dotted_name = SQLAccessBackend
+        case "ldap":
+            dotted_name = "pypicloud.access.ldap_.LDAPAccessBackend"
+        case "aws_secrets_manager":
+            dotted_name = AWSSecretsManagerAccessBackend
+        case other:
+            dotted_name = other
     access_backend = resolver.maybe_resolve(dotted_name)
     kwargs = access_backend.configure(settings)
     config.add_request_method(

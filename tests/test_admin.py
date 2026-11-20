@@ -1,5 +1,7 @@
-""" Tests for admin endpoints """
-from mock import MagicMock
+"""Tests for admin endpoints"""
+
+from unittest.mock import MagicMock
+
 from pyramid.httpexceptions import HTTPBadRequest
 
 from pypicloud.views.admin import AdminEndpoints
@@ -8,11 +10,10 @@ from . import MockServerTest
 
 
 class TestAdmin(MockServerTest):
-
     """Tests for admin endpoints"""
 
     def setUp(self):
-        super(TestAdmin, self).setUp()
+        super().setUp()
         self.access = self.request.access = MagicMock()
 
     def test_rebuild(self):

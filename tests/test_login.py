@@ -1,5 +1,7 @@
-""" Tests for login views """
-from mock import MagicMock, PropertyMock, patch
+"""Tests for login views"""
+
+from unittest.mock import MagicMock, PropertyMock, patch
+
 from pyramid.testing import DummyRequest
 
 from pypicloud.views import login
@@ -8,11 +10,10 @@ from . import MockServerTest
 
 
 class TestLoginPage(MockServerTest):
-
     """Tests for the login/403 page"""
 
     def setUp(self):
-        super(TestLoginPage, self).setUp()
+        super().setUp()
         self.request.app_url = lambda *x: "/" + "/".join(x)
 
     def test_user_fetch_login(self):
@@ -34,11 +35,10 @@ class TestLoginPage(MockServerTest):
 
 
 class TestLogin(MockServerTest):
-
     """Tests for login/register/logout operations"""
 
     def setUp(self):
-        super(TestLogin, self).setUp()
+        super().setUp()
         self.request.app_url = lambda *x: "/" + "/".join(x)
         self.request.access = MagicMock()
 
@@ -59,9 +59,7 @@ class TestLogin(MockServerTest):
         """Registering new user registers user with access backend"""
         self.request.access.user_data.return_value = None
         login.register(self.request, "dsa", "pass")
-        # pylint: disable=E1101
         self.request.access.register.assert_called_with("dsa", "pass")
-        # pylint: enable=E1101
 
     def test_register_disabled(self):
         """If registration is disabled, registering new user returns 403"""

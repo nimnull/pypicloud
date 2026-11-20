@@ -1,7 +1,8 @@
-""" View for cleaner buildout calls """
-from pyramid.view import view_config
-from pyramid_duh import addslash
+"""View for cleaner buildout calls"""
 
+from pyramid.view import view_config
+
+from pypicloud.duh import addslash
 from pypicloud.route import PackagesResource
 from pypicloud.views.simple import packages_to_dict
 

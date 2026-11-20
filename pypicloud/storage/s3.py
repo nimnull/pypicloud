@@ -1,7 +1,9 @@
-""" Store packages in S3 """
+"""Store packages in S3"""
+
 import logging
 import posixpath
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import override
 from urllib.parse import quote, urlparse
 
 import boto3
@@ -12,10 +14,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from pyramid.settings import asbool, falsey
-from pyramid_duh.settings import asdict
 from smart_open import open as _open
 
-from pypicloud.dateutil import utcnow
+from pypicloud.duh import asdict
 from pypicloud.models import Package
 from pypicloud.util import (
     EnvironSettings,
@@ -31,16 +32,16 @@ LOG = logging.getLogger(__name__)
 
 
 class S3Storage(ObjectStoreStorage):
-
     """Storage backend that uses S3"""
 
     test = False
 
     def __init__(self, request=None, bucket=None, **kwargs):
-        super(S3Storage, self).__init__(request=request, **kwargs)
+        super().__init__(request=request, **kwargs)
         self.bucket = bucket
 
     @classmethod
+    @override
     def _subclass_specific_config(cls, settings, common_config):
         sse = settings.get("storage.server_side_encryption")
         if sse not in [None, "AES256", "aws:kms"]:
@@ -58,9 +59,7 @@ class S3Storage(ObjectStoreStorage):
         return {"sse": sse, "bucket": cls.get_bucket(bucket_name, settings)}
 
     @classmethod
-    def get_bucket(
-        cls, bucket_name: str, settings: EnvironSettings
-    ) -> "boto3.s3.Bucket":
+    def get_bucket(cls, bucket_name: str, settings: EnvironSettings) -> boto3.s3.Bucket:
         config_settings = settings.get_as_dict(
             "storage.",
             region_name=str,
@@ -131,6 +130,7 @@ class S3Storage(ObjectStoreStorage):
         return bucket
 
     @classmethod
+    @override
     def package_from_object(cls, obj, factory):
         """Create a package from a S3 object"""
         filename = posixpath.basename(obj.key)
@@ -150,6 +150,7 @@ class S3Storage(ObjectStoreStorage):
             name, version, filename, obj.last_modified, path=obj.key, **metadata
         )
 
+    @override
     def list(self, factory=Package):
         keys = self.bucket.objects.filter(Prefix=self.bucket_prefix)
         for summary in keys:
@@ -159,19 +160,16 @@ class S3Storage(ObjectStoreStorage):
             if pkg is not None:
                 yield pkg
 
+    @override
     def _generate_url(self, package):
         """Generate a signed url to the S3 file"""
         if self.public_url:
             if self.region_name:
-                return "https://s3.{0}.amazonaws.com/{1}/{2}".format(
-                    self.region_name, self.bucket.name, self.get_path(package)
-                )
+                return f"https://s3.{self.region_name}.amazonaws.com/{self.bucket.name}/{self.get_path(package)}"
             else:
                 if "." in self.bucket.name:
                     self._log_region_warning()
-                return "https://{0}.s3.amazonaws.com/{1}".format(
-                    self.bucket.name, self.get_path(package)
-                )
+                return f"https://{self.bucket.name}.s3.amazonaws.com/{self.get_path(package)}"
         url = self.bucket.meta.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket.name, "Key": self.get_path(package)},
@@ -200,6 +198,7 @@ class S3Storage(ObjectStoreStorage):
     def get_uri(self, package):
         return f"s3://{self.bucket.name}/{self.get_path(package)}"
 
+    @override
     def upload(self, package, datastream):
         kwargs = {}
         if self.sse is not None:
@@ -226,6 +225,7 @@ class S3Storage(ObjectStoreStorage):
             for chunk in stream_file(datastream):
                 fp.write(chunk)  # multipart upload
 
+    @override
     def open(self, package):
         """Overwrite open method to re-use client instead of using signed url."""
         return _open(
@@ -235,11 +235,13 @@ class S3Storage(ObjectStoreStorage):
             transport_params={"client": self.bucket.meta.client},
         )
 
+    @override
     def delete(self, package):
         self.bucket.delete_objects(
             Delete={"Objects": [{"Key": self.get_path(package)}]}
         )
 
+    @override
     def check_health(self):
         try:
             self.bucket.meta.client.head_bucket(Bucket=self.bucket.name)
@@ -250,13 +252,12 @@ class S3Storage(ObjectStoreStorage):
 
 
 class CloudFrontS3Storage(S3Storage):
-
     """Storage backend that uses S3 and CloudFront"""
 
     def __init__(
         self, request=None, domain=None, crypto_pk=None, key_id=None, **kwargs
     ):
-        super(CloudFrontS3Storage, self).__init__(request, **kwargs)
+        super().__init__(request, **kwargs)
         self.domain = domain
         self.crypto_pk = crypto_pk
         self.key_id = key_id
@@ -268,8 +269,9 @@ class CloudFrontS3Storage(S3Storage):
         self.client = boto3.client("cloudfront")
 
     @classmethod
+    @override
     def configure(cls, settings):
-        kwargs = super(CloudFrontS3Storage, cls).configure(settings)
+        kwargs = super().configure(settings)
         kwargs["domain"] = settings["storage.cloud_front_domain"]
         kwargs["key_id"] = settings.get("storage.cloud_front_key_id")
         private_key = settings.get("storage.cloud_front_key_string")
@@ -291,6 +293,7 @@ class CloudFrontS3Storage(S3Storage):
         """Generate a RSA signature for a message"""
         return self.crypto_pk.sign(message, padding.PKCS1v15(), hashes.SHA1())
 
+    @override
     def _generate_url(self, package):
         """Get the fully-qualified CloudFront path for a package"""
         path = self.get_path(package)
@@ -301,5 +304,5 @@ class CloudFrontS3Storage(S3Storage):
             return url
 
         # To sign with a canned policy:
-        expires = utcnow() + timedelta(seconds=self.expire_after)
+        expires = datetime.now(UTC) + timedelta(seconds=self.expire_after)
         return self.cf_signer.generate_presigned_url(url, date_less_than=expires)

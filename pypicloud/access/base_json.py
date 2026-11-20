@@ -1,4 +1,7 @@
-""" Abstract backends that are backed by simple JSON """
+"""Abstract backends that are backed by simple JSON"""
+
+import contextlib
+from typing import override
 
 from .base import IAccessBackend, IMutableAccessBackend
 
@@ -68,9 +71,11 @@ class IJsonAccessBackend(IAccessBackend):
         """
         raise NotImplementedError
 
+    @override
     def _get_password_hash(self, username):
         return self.db["users"].get(username)
 
+    @override
     def groups(self, username=None):
         if not username:
             return list(self.db["groups"].keys())
@@ -81,12 +86,15 @@ class IJsonAccessBackend(IAccessBackend):
                 ret_groups.append(group_name)
         return ret_groups
 
+    @override
     def group_members(self, group):
         return list(self.db["groups"].get(group, []))
 
+    @override
     def is_admin(self, username):
         return username in self.db["admins"]
 
+    @override
     def group_permissions(self, package):
         result = {}
         package_data = self.db["packages"].get(package, {})
@@ -95,6 +103,7 @@ class IJsonAccessBackend(IAccessBackend):
             result[group] = permissions
         return result
 
+    @override
     def user_permissions(self, package):
         result = {}
         package_data = self.db["packages"].get(package, {})
@@ -103,6 +112,7 @@ class IJsonAccessBackend(IAccessBackend):
             result[user] = permissions
         return result
 
+    @override
     def user_package_permissions(self, username):
         packages = []
         for package_name, value in self.db["packages"].items():
@@ -114,11 +124,12 @@ class IJsonAccessBackend(IAccessBackend):
                 )
         return packages
 
+    @override
     def group_package_permissions(self, group):
         packages = []
         for package_name, value in self.db["packages"].items():
             package_groups = value.get("groups", {})
-            has_perms = group in package_groups.keys()
+            has_perms = group in package_groups
             if has_perms:
                 packages.append(
                     {
@@ -128,6 +139,7 @@ class IJsonAccessBackend(IAccessBackend):
                 )
         return packages
 
+    @override
     def user_data(self, username=None):
         admins = self.db["admins"]
         if username:
@@ -171,48 +183,55 @@ class IMutableJsonAccessBackend(IJsonAccessBackend, IMutableAccessBackend):
         """Save the JSON to the backend"""
         raise NotImplementedError
 
+    @override
     def _set_password_hash(self, username, password_hash):
         self.db["users"][username] = password_hash
         self._save()
 
+    @override
     def allow_register(self):
         return self.db.get("allow_registration", False)
 
+    @override
     def _register(self, username, password):
         self.db["pending_users"][username] = password
         self._save()
 
+    @override
     def approve_user(self, username):
         password = self.db["pending_users"].pop(username, None)
         if password is not None:
             self.db["users"][username] = password
         self._save()
 
+    @override
     def delete_user(self, username):
         self.db["pending_users"].pop(username, None)
         self.db["users"].pop(username, None)
 
-        for package_name, value in self.db["packages"].items():
+        for value in self.db["packages"].values():
             if "users" in value:
                 value["users"].pop(username, None)
-        for group_name, users in self.db["groups"].items():
-            try:
+        for users in self.db["groups"].values():
+            with contextlib.suppress(ValueError):
                 users.remove(username)
-            except ValueError:
-                pass
         self._save()
 
+    @override
     def pending_users(self):
         return list(self.db["pending_users"].keys())
 
+    @override
     def create_group(self, group):
         self.db["groups"][group] = []
         self._save()
 
+    @override
     def delete_group(self, group):
         self.db["groups"].pop(group, None)
         self._save()
 
+    @override
     def edit_user_group(self, username, group, add):
         if add:
             self.db["groups"][group].append(username)
@@ -229,9 +248,10 @@ class IMutableJsonAccessBackend(IJsonAccessBackend, IMutableAccessBackend):
         self.db["packages"][package].setdefault("groups", {})
         self.db["packages"][package].setdefault("users", {})
 
+    @override
     def edit_group_permission(self, package_name, group, perm, add):
         if perm != "read" and perm != "write":
-            raise ValueError("Unrecognized permission '%s'" % perm)
+            raise ValueError(f"Unrecognized permission '{perm}'")
         self._init_package(package_name)
         package = self.db["packages"][package_name]
         if group not in package["groups"]:
@@ -247,9 +267,10 @@ class IMutableJsonAccessBackend(IJsonAccessBackend, IMutableAccessBackend):
                 package["groups"].pop(group)
         self._save()
 
+    @override
     def edit_user_permission(self, package_name, username, perm, add):
         if perm != "read" and perm != "write":
-            raise ValueError("Unrecognized permission '%s'" % perm)
+            raise ValueError(f"Unrecognized permission '{perm}'")
         self._init_package(package_name)
         package = self.db["packages"][package_name]
         if username not in package["users"]:
@@ -260,15 +281,14 @@ class IMutableJsonAccessBackend(IJsonAccessBackend, IMutableAccessBackend):
                 user_perms.append(perm)
             package["users"][username] = user_perms
         else:
-            try:
+            with contextlib.suppress(ValueError):
                 package["users"][username].remove(perm)
-            except ValueError:
-                pass
             user_perms = package["users"][username]
             if user_perms == []:
                 package["users"].pop(username)
         self._save()
 
+    @override
     def set_user_admin(self, username, admin):
         if admin:
             self.db["admins"].append(username)
@@ -276,6 +296,7 @@ class IMutableJsonAccessBackend(IJsonAccessBackend, IMutableAccessBackend):
             self.db["admins"].remove(username)
         self._save()
 
+    @override
     def set_allow_register(self, allow):
         self.db["allow_registration"] = allow
         self._save()

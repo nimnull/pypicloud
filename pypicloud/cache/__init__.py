@@ -1,4 +1,5 @@
-""" Caching database implementations """
+"""Caching database implementations"""
+
 from functools import partial
 
 from pyramid.path import DottedNameResolver
@@ -7,17 +8,21 @@ from .base import ICache
 from .redis_cache import RedisCache
 from .sql import SQLCache
 
+__all__ = ["ICache", "RedisCache", "SQLCache", "get_cache_impl", "includeme"]
+
 
 def get_cache_impl(settings):
     """Get the cache class from settings"""
     resolver = DottedNameResolver(__name__)
-    dotted_cache = settings.get("pypi.db", "sql")
-    if dotted_cache == "sql":
-        dotted_cache = "pypicloud.cache.SQLCache"
-    elif dotted_cache == "redis":
-        dotted_cache = "pypicloud.cache.RedisCache"
-    elif dotted_cache == "dynamo":
-        dotted_cache = "pypicloud.cache.dynamo.DynamoCache"
+    match settings.get("pypi.db", "sql"):
+        case "sql":
+            dotted_cache = "pypicloud.cache.SQLCache"
+        case "redis":
+            dotted_cache = "pypicloud.cache.RedisCache"
+        case "dynamo":
+            dotted_cache = "pypicloud.cache.dynamo.DynamoCache"
+        case other:
+            dotted_cache = other
     return resolver.resolve(dotted_cache)
 
 

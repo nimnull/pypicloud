@@ -1,20 +1,20 @@
-""" API endpoints for admin controls """
+"""API endpoints for admin controls"""
+
 import gzip
 import json
 from io import BytesIO
 
-from paste.httpheaders import CONTENT_DISPOSITION  # pylint: disable=E0611
+from paste.httpheaders import CONTENT_DISPOSITION
 from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.response import FileIter
 from pyramid.view import view_config, view_defaults
-from pyramid_duh import argify
 
+from pypicloud.duh import argify
 from pypicloud.route import AdminResource
 
 
 @view_defaults(context=AdminResource, subpath=(), permission="admin", renderer="json")
-class AdminEndpoints(object):
-
+class AdminEndpoints:
     """Collection of admin endpoints"""
 
     def __init__(self, request):
@@ -98,7 +98,7 @@ class AdminEndpoints(object):
         """Create a group"""
         group = self.request.named_subpaths["group"]
         if group in ("everyone", "authenticated"):
-            return HTTPBadRequest("'%s' is a reserved name" % group)
+            return HTTPBadRequest(f"'{group}' is a reserved name")
         self.request.access.create_group(group)
         return self.request.response
 
