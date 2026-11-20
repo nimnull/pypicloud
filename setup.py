@@ -34,7 +34,8 @@ REQUIREMENTS = [
 
 EXTRAS = {
     "ldap": ["python-ldap"],
-    "dynamo": ["flywheel>=0.2.0"],
+    # DynamoDB support needs only boto3, which is a core requirement
+    "dynamo": [],
     "redis": ["redis"],
     "gcs": [
         "google-cloud-storage>=1.10.0",

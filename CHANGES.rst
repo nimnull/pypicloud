@@ -17,6 +17,10 @@ Unreleased
   true; a missing or malformed parameter still answers 400, with a message of
   the form ``"<parameter>: <reason>"``
 * **Breaking**: the ``param`` request method is removed. Read ``request.params``
+* Drop the ``flywheel`` and ``dynamo3`` dependencies. The DynamoDB cache talks
+  to AWS through boto3, which is already a core requirement, so the ``dynamo``
+  extra installs nothing. Items keep their format, so existing tables are read
+  and written as before
 * Drop ``pkg_resources``: versions parse with ``packaging`` and the config
   template loads with ``importlib.resources``
 * Define the SQL models with the SQLAlchemy 2.0 declarative API

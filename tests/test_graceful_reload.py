@@ -18,10 +18,12 @@ from pypicloud.util import EnvironSettings
 
 from . import make_package
 from .db_utils import (
+    clear_dynamo_table,
     configure_dynamo_cache,
     get_mysql_url,
     get_postgres_url,
     get_sqlite_url,
+    scan_packages,
 )
 
 
@@ -32,12 +34,14 @@ class TestDynamoCache(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.kwargs = configure_dynamo_cache(**{"db.graceful_reload": True})
-        cls.engine = cls.kwargs["engine"]
+        cls.packages = cls.kwargs["packages"]
+        cls.summaries = cls.kwargs["summaries"]
 
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        cls.engine.delete_schema()
+        cls.packages.delete()
+        cls.summaries.delete()
 
     def setUp(self):
         super().setUp()
@@ -46,24 +50,23 @@ class TestDynamoCache(unittest.TestCase):
 
     def tearDown(self):
         super().tearDown()
-        for model in (DynamoPackage, PackageSummary):
-            self.engine.scan(model).delete()
+        clear_dynamo_table(self.packages, "filename")
+        clear_dynamo_table(self.summaries, "name")
 
     def _save_pkgs(self, *pkgs):
         """Save a DynamoPackage to the db"""
         for pkg in pkgs:
-            self.engine.save(pkg)
-            summary = PackageSummary(pkg)
-            self.engine.save(summary, overwrite=True)
+            self.packages.put_item(Item=pkg.to_item())
+            self.summaries.put_item(Item=PackageSummary(pkg).to_item())
 
     def test_add_missing(self):
         """Add missing packages to cache"""
         keys = [make_package(factory=DynamoPackage)]
         self.storage.list.return_value = keys
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, keys)
-        all_summaries = self.engine.scan(PackageSummary).all()
+        all_summaries = self.summaries.scan()["Items"]
         self.assertEqual(len(all_summaries), 1)
 
     def test_remove_extra(self):
@@ -76,10 +79,10 @@ class TestDynamoCache(unittest.TestCase):
         self.db.save(keys[1])
         self.storage.list.return_value = keys[:1]
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, keys[:1])
         # It should have removed the summary as well
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 1)
+        self.assertEqual(self.summaries.scan()["Count"], 1)
 
     def test_remove_extra_leave_concurrent(self):
         """Removing extra packages will leave packages that were uploaded concurrently"""
@@ -107,9 +110,9 @@ class TestDynamoCache(unittest.TestCase):
         self.storage.list.side_effect = list_storage
 
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs[1:])
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 2)
+        self.assertEqual(self.summaries.scan()["Count"], 2)
 
     def test_remove_extra_concurrent_deletes(self):
         """Remove packages from cache that were concurrently deleted"""
@@ -125,9 +128,9 @@ class TestDynamoCache(unittest.TestCase):
         self.storage.list.side_effect = lambda _: return_values.pop(0)
 
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs[:1])
-        self.assertEqual(self.engine.scan(PackageSummary).count(), 1)
+        self.assertEqual(self.summaries.scan()["Count"], 1)
 
     def test_add_missing_more_recent(self):
         """If we sync a more recent package, update the summary"""
@@ -141,7 +144,7 @@ class TestDynamoCache(unittest.TestCase):
         self.db.save(pkgs[0])
         self.storage.list.return_value = pkgs
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs)
         summaries = self.db.summary()
         self.assertEqual(len(summaries), 1)
@@ -157,7 +160,7 @@ class TestDynamoCache(unittest.TestCase):
         ]
         self.storage.list.return_value = pkgs
         self.db.reload_from_storage()
-        all_pkgs = self.engine.scan(DynamoPackage).all()
+        all_pkgs = scan_packages(self.packages)
         self.assertCountEqual(all_pkgs, pkgs)
         summaries = self.db.summary()
         self.assertEqual(len(summaries), 1)

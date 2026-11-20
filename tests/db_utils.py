@@ -32,6 +32,20 @@ def configure_dynamo_cache(**extra_settings: Any) -> dict[str, Any]:
         raise unittest.SkipTest(f"Couldn't connect to DynamoDB at {host}:{port}") from e
 
 
+def clear_dynamo_table(table, key: str) -> None:
+    """Delete every item of a DynamoDB table"""
+    with table.batch_writer() as batch:
+        for item in table.scan()["Items"]:
+            batch.delete_item(Key={key: item[key]})
+
+
+def scan_packages(table) -> list:
+    """Every package in a DynamoDB table"""
+    from pypicloud.cache.dynamo import DynamoPackage
+
+    return [DynamoPackage.from_item(item) for item in table.scan()["Items"]]
+
+
 def get_sqlite_url() -> str:
     return "sqlite://"
 
