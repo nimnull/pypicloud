@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypicloud"
-version = "1.3.12"
+dynamic = ["version"]
 description = "Private PyPI backed by S3"
 readme = "README.rst"
 requires-python = ">=3.14"
@@ -106,11 +106,26 @@ dev = [
     "twine",
 ]
 
+[tool.hatch.version]
+path = "pypicloud/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["pypicloud"]
 
 [tool.hatch.build.targets.sdist]
 include = ["pypicloud", "tests", "doc", "*.rst", "LICENSE"]
+
+[tool.bumpversion]
+current_version = "1.3.12"
+tag_name = "{new_version}"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pypicloud/__init__.py"
+
+[[tool.bumpversion.files]]
+filename = "doc/conf.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

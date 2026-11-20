@@ -66,6 +66,10 @@ Internals
 * Declare the package with ``pyproject.toml`` and build it with hatchling.
   ``setup.py``, ``setup.cfg``, ``MANIFEST.in`` and the three ``requirements*.txt``
   files are gone; test, docs and dev dependencies live in dependency groups
+* Release with ``bump-my-version`` instead of ``bumpversion``, which has not
+  been released since 2018. Its configuration moved from ``.bumpversion.cfg``
+  into ``[tool.bumpversion]``, and the version is now declared once, in
+  ``pypicloud/__init__.py``, which hatchling reads for the package metadata
 * Develop with uv instead of pip and tox. ``uv sync --all-extras`` sets up a
   checkout, ``./compose test`` runs the suite against the service containers,
   and ``uv.lock`` pins what CI installs
