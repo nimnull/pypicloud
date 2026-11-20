@@ -7,7 +7,7 @@ export CURRENT_UID
 if [ -z "$1" ]; then
   echo "$0 [test,shell,run,*]"
 elif [ "$1" == "test" ]; then
-  docker compose --env-file /dev/null run --rm shell uv run --frozen pytest
+  docker compose --env-file /dev/null run --rm shell uv run --frozen --all-extras pytest
 elif [ "$1" == "run" ]; then
   shift
   docker compose --env-file /dev/null run --rm shell "$@"

@@ -17,15 +17,15 @@ jobs:
       run: ./compose build
     - name: Run tests
       if: ${{ matrix.task == 'test' }}
-      run: ./compose run uv run --frozen coverage run --source=pypicloud --branch -m pytest
+      run: ./compose run uv run --frozen --all-extras coverage run --source=pypicloud --branch -m pytest
     - name: Publish coverage
       if: ${{ matrix.task == 'test' }}
-      run: ./compose run uv run --frozen coveralls --service=github
+      run: ./compose run uv run --frozen --all-extras coveralls --service=github
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Lint
       if: ${{ matrix.task == 'lint' }}
       run: |
-        ./compose run uv run --frozen ruff check pypicloud tests scripts
-        ./compose run uv run --frozen ruff format --check pypicloud tests scripts
-        ./compose run uv run --frozen mypy pypicloud
+        ./compose run uv run --frozen --all-extras ruff check pypicloud tests scripts
+        ./compose run uv run --frozen --all-extras ruff format --check pypicloud tests scripts
+        ./compose run uv run --frozen --all-extras mypy pypicloud
