@@ -6,9 +6,9 @@ from collections import defaultdict
 from io import BytesIO
 
 import webtest
-from passlib.hash import sha256_crypt
 
 from pypicloud import main
+from pypicloud.hashing import get_pwd_context
 
 from . import DummyCache, DummyStorage, make_package
 
@@ -23,6 +23,9 @@ def _auth(username, password):
     header = "Basic " + base64string
 
     return {"Authorization": header}
+
+
+_hash = get_pwd_context().hash
 
 
 class GlobalDummyStorage(DummyStorage):
@@ -62,8 +65,8 @@ class TestEndpointSecurity(unittest.TestCase):
             "pypi.db": "tests.test_security.GlobalDummyCache",
             "pypi.storage": "tests.test_security.GlobalDummyStorage",
             "session.validate_key": "a",
-            "user.user": sha256_crypt.hash("user"),
-            "user.user2": sha256_crypt.hash("user2"),
+            "user.user": _hash("user"),
+            "user.user2": _hash("user2"),
             f"package.{package.name}.group.authenticated": "r",
             f"package.{package.name}.group.brotatos": "rw",
             "group.brotatos": ["user2"],
@@ -142,8 +145,8 @@ class TestEndpointSecurityAdmin(unittest.TestCase):
             "pypi.allow_overwrite_groups": ["admin"],
             "pypi.allow_delete_groups": ["admin"],
             "session.validate_key": "a",
-            "user.user": sha256_crypt.hash("user"),
-            "user.admin": sha256_crypt.hash("admin"),
+            "user.user": _hash("user"),
+            "user.admin": _hash("admin"),
             f"package.{package.name}.user.user": "rw",
             "auth.admins": ["admin"],
         }

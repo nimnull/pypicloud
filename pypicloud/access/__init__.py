@@ -5,19 +5,12 @@ from functools import partial
 from pyramid.path import DottedNameResolver
 
 from .aws_secrets_manager import AWSSecretsManagerAccessBackend
-from .base import (
-    DEFAULT_ROUNDS,
-    SCHEMES,
-    IAccessBackend,
-    IMutableAccessBackend,
-    get_pwd_context,
-)
+from .base import SCHEMES, IAccessBackend, IMutableAccessBackend, get_pwd_context
 from .config import ConfigAccessBackend
 from .remote import RemoteAccessBackend
 from .sql import SQLAccessBackend
 
 __all__ = [
-    "DEFAULT_ROUNDS",
     "SCHEMES",
     "AWSSecretsManagerAccessBackend",
     "ConfigAccessBackend",

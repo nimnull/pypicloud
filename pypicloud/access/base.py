@@ -7,8 +7,7 @@ import time
 from collections import defaultdict
 from typing import Any, override
 
-from passlib.apps import LazyCryptContext
-from passlib.utils import sys_bits
+from pwdlib.exceptions import UnknownHashError
 from pyramid.authorization import (
     ALL_PERMISSIONS,
     Allow,
@@ -18,59 +17,12 @@ from pyramid.authorization import (
 )
 from pyramid.settings import aslist
 
+from pypicloud.hashing import SCHEMES, get_pwd_context, is_legacy_hash
 from pypicloud.util import EnvironSettings
 
 Admin = "admin"
+__all__ = ["SCHEMES", "get_pwd_context"]
 LOG = logging.getLogger(__name__)
-
-# Roughly tuned using https://bitbucket.org/ecollins/passlib/raw/default/choose_rounds.py
-# For 10ms. This differs from the passlib recommendation of 350ms due to the difference in use case
-DEFAULT_ROUNDS = {
-    "sha512_crypt__default_rounds": 20500,
-    "sha256_crypt__default_rounds": 16000,
-    "pbkdf2_sha512__default_rounds": 10500,
-    "pbkdf2_sha256__default_rounds": 13000,
-    "bcrypt__default_rounds": 7,
-    "argon2__default_rounds": 1,
-}
-SCHEMES = [
-    "sha512_crypt",
-    "sha256_crypt",
-    "pbkdf2_sha512",
-    "pbkdf2_sha256",
-    "bcrypt",
-    "argon2",
-]
-if sys_bits < 64:
-    SCHEMES.remove("sha512_crypt")
-    SCHEMES.remove("pbkdf2_sha512")
-
-
-def get_pwd_context(
-    preferred_hash: str | None = None, rounds: int | None = None
-) -> LazyCryptContext:
-    """Create a passlib context for hashing passwords"""
-    if preferred_hash is None or preferred_hash == "sha":
-        preferred_hash = "sha256_crypt" if sys_bits < 64 else "sha512_crypt"
-    if preferred_hash == "pbkdf2":
-        preferred_hash = "pbkdf2_sha256" if sys_bits < 64 else "pbkdf2_sha512"
-
-    if preferred_hash not in SCHEMES:
-        raise Exception(
-            f"Password hash {preferred_hash!r} is not in the list of supported schemes"
-        )
-
-    # Put the preferred hash at the beginning of the schemes list
-    schemes = list(SCHEMES)
-    schemes.remove(preferred_hash)
-    schemes.insert(0, preferred_hash)
-
-    # Override the default rounds of the preferred hash, if provided
-    default_rounds = dict(DEFAULT_ROUNDS)
-    if rounds is not None:
-        default_rounds[preferred_hash + "__default_rounds"] = rounds
-
-    return LazyCryptContext(schemes=schemes, default=schemes[0], **default_rounds)
 
 
 def group_to_principal(group: str) -> str:
@@ -393,7 +345,20 @@ class IAccessBackend:
             user_data = self.user_data(username)
             if user_data is None:
                 return False
-        return bool(stored_pw and self.pwd_context.verify(password, stored_pw))
+        if not stored_pw:
+            return False
+        if is_legacy_hash(stored_pw):
+            LOG.warning(
+                "Password of user %r is hashed with a scheme that pypicloud no "
+                "longer supports. The password has to be set again.",
+                username,
+            )
+            return False
+        try:
+            return bool(self.pwd_context.verify(password, stored_pw))
+        except UnknownHashError:
+            LOG.warning("Password hash of user %r is unreadable", username)
+            return False
 
     def _get_password_hash(self, username: str) -> str:
         """Get the stored password hash for a user"""

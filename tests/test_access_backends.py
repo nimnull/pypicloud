@@ -1532,9 +1532,8 @@ class TestAWSSecretsManagerBackend(unittest.TestCase):
         }
         self._data = {
             "users": {
-                # password is 'asdf'
-                "admin": "$6$rounds=1000$Q5rf4IcKLTpMw.dN$xl/4AxlYZkSx9w78BWXBA1BwbexhvN5EN800Rh47HllK1zEamYNpjIYC4rHDImKYJEBvp72qoD0wkYYCR7Cvy.",
-                "user": "$6$rounds=1000$Q5rf4IcKLTpMw.dN$xl/4AxlYZkSx9w78BWXBA1BwbexhvN5EN800Rh47HllK1zEamYNpjIYC4rHDImKYJEBvp72qoD0wkYYCR7Cvy.",
+                "admin": pwd_context.hash("asdf"),
+                "user": pwd_context.hash("asdf"),
             },
             "groups": {"group1": ["admin"], "group2": ["admin", "user"]},
             "packages": {

@@ -27,8 +27,8 @@ generate a default production config file.
     You should make sure that ``session.secure`` is ``true``
 
 You may want to tweak :ref:`auth.scheme <auth_scheme>` or :ref:`auth.rounds
-<auth_rounds>` for more speed or more security. See :ref:`passlib` for more
-context.
+<auth_rounds>` for more speed or more security. See :ref:`password_hashing` for
+measured numbers and for the memory that argon2 holds per request.
 
 WSGI Server
 -----------

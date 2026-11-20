@@ -21,7 +21,7 @@ REQUIREMENTS = [
     "packaging>=23",
     "pydantic>=2.9",
     "paste>=3.10",
-    "passlib>=1.7",
+    "pwdlib[argon2,bcrypt]>=0.4",
     "pyramid>=2.1",
     "pyramid_beaker",
     "pyramid_jinja2",
