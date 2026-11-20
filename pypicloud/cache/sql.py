@@ -12,10 +12,8 @@ from sqlalchemy import (
     DateTime,
     String,
     Text,
-    and_,
     delete,
     engine_from_config,
-    or_,
     select,
 )
 from sqlalchemy.exc import SQLAlchemyError
@@ -211,59 +209,6 @@ class SQLCache(ICache):
     def distinct(self):
         names = select(SQLPackage.name).distinct().order_by(SQLPackage.name)
         return list(self.db.scalars(names))
-
-    @override
-    def search(self, criteria, query_type):
-        """
-        Perform a search.
-
-        Queries are performed as follows:
-
-            For the AND query_type, queries within a column will utilize the
-            AND operator, but will not conflict with queries in another column.
-
-                (column1 LIKE '%a%' AND column1 LIKE '%b%')
-                OR
-                (column2 LIKE '%c%' AND column2 LIKE '%d%')
-
-            For the OR query_type, all queries will utilize the OR operator:
-
-                (column1 LIKE '%a%' OR column1 LIKE '%b%')
-                OR
-                (column2 LIKE '%c%' OR column2 LIKE '%d%')
-
-        """
-        conditions = []
-        for key, queries in criteria.items():
-            # Make sure search key exists in the package class.
-            # It should be either "name" or "summary".
-            field = getattr(SQLPackage, key, None)
-            if not field:
-                continue
-
-            column_conditions = []
-
-            for query in queries:
-                # Generate condition and add to list
-                condition = field.like("%" + query + "%")
-                column_conditions.append(condition)
-
-            # Check if conditions for this column were generated
-            if column_conditions:
-                operator = and_ if query_type == "and" else or_
-                conditions.append(operator(*column_conditions))
-
-        # Piece together the queries. Refer to the method docstring for
-        # examples as to how this works.
-        results = self.db.scalars(select(SQLPackage).where(or_(*conditions)))
-
-        # Extract only the most recent version for each package
-        latest_map = {}
-        for package in results:
-            if package.name not in latest_map or package > latest_map[package.name]:
-                latest_map[package.name] = package
-
-        return latest_map.values()
 
     @override
     def summary(self):

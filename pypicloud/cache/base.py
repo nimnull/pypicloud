@@ -10,7 +10,7 @@ from pyramid.settings import asbool
 
 from pypicloud.models import Package
 from pypicloud.storage import get_storage_impl
-from pypicloud.util import create_matcher, normalize_name, parse_filename, stream_file
+from pypicloud.util import normalize_name, parse_filename, stream_file
 
 LOG = logging.getLogger(__name__)
 
@@ -213,54 +213,6 @@ class ICache:
 
         """
         raise NotImplementedError
-
-    def search(self, criteria: dict[str, list[str]], query_type: str) -> list[Package]:
-        """
-        Perform a search from pip
-
-        Parameters
-        ----------
-        criteria : dict
-            Dictionary containing the search criteria. Pip sends search criteria
-            for "name" and "summary" (typically, both of these lists have the
-            same search values).
-
-            Example::
-
-                {
-                    "name": ["value1", "value2", ..., "valueN"],
-                    "summary": ["value1", "value2", ..., "valueN"]
-                }
-
-        query_type : str
-            Type of query to perform. By default, pip sends "or".
-
-
-        """
-        name_queries = criteria.get("name", [])
-        summary_queries = criteria.get("summary", [])
-        packages = []
-
-        # Create matchers for the queries
-        match_name = create_matcher(name_queries, query_type)
-        match_summary = create_matcher(summary_queries, query_type)
-
-        for key in self.distinct():
-            # Search all versions of this package key
-            latest: Package | None = None
-            for package in self.all(key):
-                # Search for a match. If we've already found a match, make sure
-                # we find the most recent version that matches.
-                if (latest is None or package > latest) and (
-                    match_name(package.name)
-                    or package.summary is not None
-                    and match_summary(package.summary)
-                ):
-                    latest = package
-            if latest is not None:
-                packages.append(latest)
-
-        return packages
 
     def summary(self) -> list[dict[str, Any]]:
         """

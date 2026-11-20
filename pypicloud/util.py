@@ -84,30 +84,6 @@ def normalize_metadata(metadata: dict[str, str | bytes]) -> dict[str, str]:
     }
 
 
-def create_matcher(queries: list[str], query_type: str) -> Callable[[str], bool]:
-    """
-    Create a matcher for a list of queries
-
-    Parameters
-    ----------
-    queries : list
-        List of queries
-
-    query_type: str
-        Type of query to run: ["or"|"and"]
-
-    Returns
-    -------
-        Matcher function
-
-    """
-    queries = [query.lower() for query in queries]
-    if query_type == "or":
-        return lambda x: any(q in x.lower() for q in queries)
-    else:
-        return lambda x: all(q in x.lower() for q in queries)
-
-
 def stream_file[S: (bytes, str)](
     fp: Reader[S], chunk_size: int = CHUNK_SIZE
 ) -> Iterator[S]:

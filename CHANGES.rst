@@ -24,6 +24,10 @@ Runtime
   true; a missing or malformed parameter still answers 400, with a message of
   the form ``"<parameter>: <reason>"``
 * **Breaking**: the ``param`` request method is removed. Read ``request.params``
+* **Breaking**: the XML-RPC endpoints at ``/pypi`` and ``/pypi/`` are removed,
+  and with them ``pip search`` against pypicloud. ``ICache.search()``,
+  ``SQLCache.search()`` and ``Package.search_summary()`` go with them. PyPI
+  disabled its own XML-RPC search API in 2021
 * **Breaking**: ``pypicloud.dateutil`` is removed. Use ``datetime.UTC``,
   ``datetime.now(UTC)`` and ``datetime.fromtimestamp(ts, UTC)``
 * **Breaking**: ``FileStorage.get_path()``, ``get_metadata_path()`` and
@@ -41,6 +45,8 @@ Dependencies
 * Drop ``pyramid_duh`` (last released 2014), which called the removed
   ``inspect.getargspec``. The ``addslash`` decorator and the ``subpath`` view
   predicate now live in ``pypicloud.duh``
+* Drop ``pyramid_rpc`` (last released 2016), which was the last dependency
+  importing the deprecated ``pkg_resources``
 * Drop ``pkg_resources``: versions parse with ``packaging`` and the config
   template loads with ``importlib.resources``
 * Require and declare SQLAlchemy 2.1. The SQL cache and access backends import it

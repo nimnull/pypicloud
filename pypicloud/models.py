@@ -118,11 +118,3 @@ class Package:
             "summary": self.summary,
             "metadata": self.get_metadata(),
         }
-
-    def search_summary(self):
-        """Data to return from a pip search"""
-        return {
-            "name": self.name,
-            "summary": self.summary or "",  # May be None
-            "version": self.version,
-        }

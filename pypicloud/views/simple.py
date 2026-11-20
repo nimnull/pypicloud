@@ -8,7 +8,6 @@ from packaging.version import parse
 from pydantic import Field
 from pyramid.httpexceptions import HTTPBadRequest, HTTPConflict, HTTPFound, HTTPNotFound
 from pyramid.view import view_config
-from pyramid_rpc.xmlrpc import xmlrpc_method
 
 from pypicloud.duh import addslash
 from pypicloud.params import use_params
@@ -58,21 +57,6 @@ def upload(
             return HTTPConflict(*e.args)
     else:
         return HTTPBadRequest(f"Unknown action '{action}'")
-
-
-@xmlrpc_method(endpoint="pypi")
-@xmlrpc_method(endpoint="pypi_slash")
-def search(request, criteria, query_type):
-    """
-    Perform searches from pip. This handles XML RPC requests to the "pypi"
-    endpoint (configured as /pypi/) that specify the method "search".
-
-    """
-    filtered = []
-    for pkg in request.db.search(criteria, query_type):
-        if request.access.has_permission(pkg.name, "read"):
-            filtered.append(pkg.search_summary())
-    return filtered
 
 
 @view_config(
