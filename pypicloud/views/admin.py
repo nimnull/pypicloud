@@ -9,7 +9,7 @@ from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.response import FileIter
 from pyramid.view import view_config, view_defaults
 
-from pypicloud.duh import argify
+from pypicloud.params import use_params
 from pypicloud.route import AdminResource
 
 
@@ -43,8 +43,8 @@ class AdminEndpoints:
         return self.request.access.user_data(username)
 
     @view_config(name="user", subpath=("username/*"), request_method="PUT")
-    @argify
-    def create_user(self, password):
+    @use_params
+    def create_user(self, password: str):
         """Create a new user"""
         username = self.request.named_subpaths["username"]
         self.request.access.register(username, password)
@@ -66,8 +66,8 @@ class AdminEndpoints:
         return self.request.response
 
     @view_config(name="user", subpath=("username/*", "admin"), request_method="POST")
-    @argify
-    def set_admin_status(self, admin):
+    @use_params
+    def set_admin_status(self, admin: bool):
         """Set a user to be or not to be an admin"""
         username = self.request.named_subpaths["username"]
         self.request.access.set_user_admin(username, admin)
@@ -165,8 +165,8 @@ class AdminEndpoints:
         return self.request.response
 
     @view_config(name="register", request_method="POST")
-    @argify
-    def toggle_allow_register(self, allow):
+    @use_params
+    def toggle_allow_register(self, allow: bool):
         """Allow or disallow user registration"""
         self.request.access.set_allow_register(allow)
         return self.request.response

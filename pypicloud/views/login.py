@@ -4,7 +4,7 @@ from pyramid.httpexceptions import HTTPForbidden, HTTPFound
 from pyramid.security import NO_PERMISSION_REQUIRED, forget, remember
 from pyramid.view import view_config
 
-from pypicloud.duh import argify
+from pypicloud.params import use_params
 from pypicloud.route import AccountResource
 
 
@@ -40,8 +40,8 @@ def do_forbidden(request):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def do_login(request, username, password):
+@use_params
+def do_login(request, username: str, password: str):
     """Check credentials and log in"""
     if request.access.verify_user(username, password):
         request.response.headers.extend(remember(request, username))
@@ -90,8 +90,8 @@ def handle_register_request(request, username, password):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def do_token_register(request, token, password):
+@use_params
+def do_token_register(request, token: str, password: str):
     """Consume a signed token and create a new user"""
     username = request.access.validate_signup_token(token)
     if username is None:
@@ -112,8 +112,8 @@ def do_token_register(request, token, password):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def register(request, username, password):
+@use_params
+def register(request, username: str, password: str):
     """Check credentials and log in"""
     return handle_register_request(request, username, password)
 

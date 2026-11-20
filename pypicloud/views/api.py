@@ -3,6 +3,7 @@
 import logging
 import posixpath
 from tempfile import TemporaryFile
+from typing import Any
 
 from paste.httpheaders import CACHE_CONTROL, CONTENT_DISPOSITION
 from pyramid.httpexceptions import (
@@ -15,7 +16,8 @@ from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.view import view_config
 from smart_open import open as _open
 
-from pypicloud.duh import addslash, argify
+from pypicloud.duh import addslash
+from pypicloud.params import use_params
 from pypicloud.route import (
     APIPackageFileResource,
     APIPackageResource,
@@ -33,8 +35,8 @@ LOG = logging.getLogger(__name__)
     context=APIPackagingResource, request_method="GET", subpath=(), renderer="json"
 )
 @addslash
-@argify
-def all_packages(request, verbose=False):
+@use_params
+def all_packages(request, verbose: bool = False):
     """List all packages"""
     packages = request.db.summary() if verbose else request.db.distinct()
     i = 0
@@ -143,8 +145,14 @@ def download_package(context, request):
     renderer="json",
     permission="write",
 )
-@argify
-def upload_package(context, request, content, summary=None, requires_python=None):
+@use_params
+def upload_package(
+    context,
+    request,
+    content: Any,
+    summary: str | None = None,
+    requires_python: str | None = None,
+):
     """Upload a package"""
     try:
         return request.db.upload(
@@ -187,8 +195,8 @@ def delete_package(context, request):
     renderer="json",
     permission=NO_PERMISSION_REQUIRED,
 )
-@argify
-def register(request, password):
+@use_params
+def register(request, password: str):
     """Register a user"""
     username = request.named_subpaths["username"]
     return handle_register_request(request, username, password)
@@ -201,8 +209,8 @@ def register(request, password):
     request_method="POST",
     permission="login",
 )
-@argify
-def change_password(request, old_password, new_password):
+@use_params
+def change_password(request, old_password: str, new_password: str):
     """Change a user's password"""
     if not request.access.verify_user(request.authenticated_userid, old_password):
         return HTTPForbidden()

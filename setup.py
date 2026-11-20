@@ -19,6 +19,7 @@ REQUIREMENTS = [
     "cryptography",
     "distlib",
     "packaging>=23",
+    "pydantic>=2.9",
     "paste>=3.10",
     "passlib>=1.7",
     "pyramid>=2.1",

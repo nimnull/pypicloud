@@ -9,9 +9,14 @@ Unreleased
   ``datetime.now(UTC)`` and ``datetime.fromtimestamp(ts, UTC)``
 * **Breaking**: ``FileStorage.get_path()``, ``get_metadata_path()`` and
   ``path_to_meta_path()`` return ``pathlib.Path`` instead of ``str``
-* Drop the ``pyramid_duh`` dependency. The ``argify`` and ``addslash``
-  decorators, the ``subpath`` view predicate and the ``param`` request method
-  now live in ``pypicloud.duh``
+* Drop the ``pyramid_duh`` dependency. The ``addslash`` decorator and the
+  ``subpath`` view predicate now live in ``pypicloud.duh``
+* **Breaking**: view parameters are validated against their annotations with
+  pydantic (``pypicloud.params.use_params``), replacing ``argify``. Values are
+  coerced to the annotated type, so ``?verbose=false`` is now false instead of
+  true; a missing or malformed parameter still answers 400, with a message of
+  the form ``"<parameter>: <reason>"``
+* **Breaking**: the ``param`` request method is removed. Read ``request.params``
 * Drop ``pkg_resources``: versions parse with ``packaging`` and the config
   template loads with ``importlib.resources``
 * Define the SQL models with the SQLAlchemy 2.0 declarative API

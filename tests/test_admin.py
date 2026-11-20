@@ -54,7 +54,7 @@ class TestAdmin(MockServerTest):
     def test_set_admin_status(self):
         """Set the admin flag for a user"""
         self.request.named_subpaths = {"username": "a"}
-        AdminEndpoints(self.request).set_admin_status(True)
+        AdminEndpoints(self.request).set_admin_status(admin=True)
         self.access.set_user_admin.assert_called_with("a", True)
 
     def test_add_group_member(self):
@@ -185,5 +185,5 @@ class TestAdmin(MockServerTest):
 
     def test_toggle_allow_register(self):
         """Toggle registration enabled"""
-        AdminEndpoints(self.request).toggle_allow_register(True)
+        AdminEndpoints(self.request).toggle_allow_register(allow=True)
         self.access.set_allow_register.assert_called_with(True)

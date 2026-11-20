@@ -1,4 +1,4 @@
-"""View helpers: request parameters, subpath predicates, trailing slashes.
+"""View helpers: subpath predicates and trailing slashes.
 
 Vendored from pyramid_duh 0.1.2 (MIT, Steven Arcangeli), reduced to the parts
 pypicloud uses.
@@ -12,14 +12,11 @@ from collections.abc import Callable
 from typing import Any
 
 from pyramid.config import Configurator
-from pyramid.httpexceptions import HTTPBadRequest, HTTPFound
+from pyramid.httpexceptions import HTTPFound
 from pyramid.interfaces import IRequest
 from pyramid.request import Request
 from zope.interface.exceptions import DoesNotImplement
 from zope.interface.verify import verifyObject
-
-NO_ARG = object()
-_ABSENT = object()
 
 
 def is_request(obj: Any) -> bool:
@@ -28,27 +25,6 @@ def is_request(obj: Any) -> bool:
         return verifyObject(IRequest, obj)
     except DoesNotImplement:
         return False
-
-
-def _request_params(request: Request) -> Any:
-    """Parameters of a request: the JSON body if it has one, else GET/POST params."""
-    content_type = request.headers.get("Content-Type", "").split(";")[0]
-    if content_type == "application/json":
-        return request.json_body
-    return request.params
-
-
-def param(request: Request, name: str, default: Any = NO_ARG) -> Any:
-    """Value of a single request parameter.
-
-    Raises HTTPBadRequest if the parameter is missing and no default is given.
-    """
-    try:
-        return _request_params(request)[name]
-    except KeyError:
-        if default is NO_ARG:
-            raise HTTPBadRequest(f"Missing argument '{name}'") from None
-        return default
 
 
 def _positional_names(fxn: Callable) -> tuple[list[str], list[str], bool]:
@@ -66,60 +42,6 @@ def _positional_names(fxn: Callable) -> tuple[list[str], list[str], bool]:
         else:
             optional.append(name)
     return required, optional, takes_kwargs
-
-
-def argify(fxn: Callable) -> Callable:
-    """Pass request parameters into a view as named arguments.
-
-    A missing required argument raises HTTPBadRequest; a missing optional one keeps
-    its default. The arguments named ``self``, ``context`` and ``request`` get the
-    view instance, the context and the request instead of a parameter. A call that
-    does not follow pyramid's ``(context, request)`` or bound-method convention is
-    passed through untouched, so tests can call the view directly.
-
-    Values are passed through as they arrive: strings for form and query parameters,
-    decoded JSON for a JSON body.
-    """
-    required, optional, takes_kwargs = _positional_names(fxn)
-
-    @functools.wraps(fxn)
-    def param_twiddler(*args: Any, **kwargs: Any) -> Any:
-        view_self = None
-        if required and required[0] == "self":
-            if len(args) != 1 or kwargs:
-                return fxn(*args, **kwargs)
-            view_self = args[0]
-            if not hasattr(view_self, "request"):
-                raise AttributeError(f"View class {view_self} has no 'request'")
-            request = view_self.request
-            context = getattr(view_self, "context", None)
-        elif len(args) == 2 and not kwargs and is_request(args[1]):
-            context, request = args
-        else:
-            return fxn(*args, **kwargs)
-
-        params = dict(_request_params(request))
-        scope: dict[str, Any] = {}
-        for name in required:
-            if name == "self":
-                scope[name] = view_self
-            elif name == "context":
-                scope[name] = context
-            elif name == "request":
-                scope[name] = request
-            else:
-                scope[name] = param(request, name)
-                params.pop(name, None)
-        for name in optional:
-            value = param(request, name, _ABSENT)
-            params.pop(name, None)
-            if value is not _ABSENT:
-                scope[name] = value
-        if takes_kwargs:
-            scope.update(params)
-        return fxn(**scope)
-
-    return param_twiddler
 
 
 def addslash(fxn: Callable) -> Callable:
@@ -141,8 +63,8 @@ def addslash(fxn: Callable) -> Callable:
                     new_url += "?" + request.query_string
                 return HTTPFound(location=new_url)
             if wants_request_only:
-                return fxn(request)
-            return fxn(*args)
+                return fxn(request, **kwargs)
+            return fxn(*args, **kwargs)
         return fxn(*args, **kwargs)
 
     return slash_redirect
@@ -233,6 +155,5 @@ def asdict(setting: str | dict | None, value_type: Callable = lambda x: x) -> di
 
 
 def includeme(config: Configurator) -> None:
-    """Add the ``param`` request method and the ``subpath`` view predicate."""
-    config.add_request_method(param, name="param")
+    """Add the ``subpath`` view predicate."""
     config.add_view_predicate("subpath", SubpathPredicate)

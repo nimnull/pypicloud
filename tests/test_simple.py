@@ -33,48 +33,48 @@ class TestSimple(MockServerTest):
 
     def test_upload(self):
         """Upload endpoint returns the result of api call"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "bar", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
-        pkg = upload(self.request, content, name, version)
+        pkg = upload(self.request, content=content, name=name, version=version)
 
         self.assertEqual(pkg, self.request.db.packages[content.filename])
 
     def test_upload_bad_action(self):
         """Upload endpoint only respects 'file_upload' action"""
-        self.params = {":action": "blah"}
+        self.request.params = {":action": "blah"}
         name, version, content = "foo", "bar", "baz"
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response.status_code, 400)
 
     def test_upload_no_write_permission(self):
         """Upload without write permission returns 403"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "bar", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
         self.request.access.has_permission.return_value = False
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response, self.request.forbid())
 
     def test_upload_duplicate(self):
         """Uploading a duplicate package returns 409"""
         self.request.access.can_overwrite_package.return_value = False
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name, version, content = "foo", "1.2", FileUpload("testfile", b"test1234")
         content.filename = "foo-1.2.tar.gz"
         self.db.upload(content.filename, content.file, name)
-        response = upload(self.request, content, name, version)
+        response = upload(self.request, content=content, name=name, version=version)
         self.assertEqual(response.status_code, 409)
 
     def test_search(self):
         """Pip search executes successfully"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name1, version1, content1 = "foo", "1.1", FileUpload("testfile", b"test1234")
         content1.filename = "foo-1.2.tar.gz"
         name2, version2, content2 = "bar", "1.0", FileUpload("testfile", b"test1234")
         content2.filename = "bar-1.2.tar.gz"
-        upload(self.request, content1, name1, version1)
-        upload(self.request, content2, name2, version2)
+        upload(self.request, content=content1, name=name1, version=version1)
+        upload(self.request, content=content2, name=name2, version=version2)
 
         criteria = {"name": ["foo"], "summary": ["foo"]}
         response = search(self.request, criteria, "or")
@@ -83,16 +83,16 @@ class TestSimple(MockServerTest):
 
     def test_search_permission_filter(self):
         """Pip search only gets results that user has read perms for"""
-        self.params = {":action": "file_upload"}
+        self.request.params = {":action": "file_upload"}
         name1, version1, content1 = "pkg1", "1.1", FileUpload("testfile", b"test1234")
         content1.filename = "pkg1-1.1.tar.gz"
         name2, version2, content2 = "pkg2", "1.0", FileUpload("testfile", b"test1234")
         content2.filename = "pkg2-1.0.tar.gz"
         name3, version3, content3 = "other", "1.0", FileUpload("testfile", b"test1234")
         content3.filename = "other-1.0.tar.gz"
-        upload(self.request, content1, name1, version1)
-        upload(self.request, content2, name2, version2)
-        upload(self.request, content3, name3, version3)
+        upload(self.request, content=content1, name=name1, version=version1)
+        upload(self.request, content=content2, name=name2, version=version2)
+        upload(self.request, content=content3, name=name3, version=version3)
         self.request.access.has_permission.side_effect = lambda x, _: x == "pkg1"
         criteria = {"name": ["pkg"]}
         response = search(self.request, criteria, "and")

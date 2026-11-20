@@ -39,7 +39,7 @@ class TestApi(MockServerTest):
         """List all package data"""
         p1 = make_package()
         p1 = self.db.upload(p1.filename, BytesIO(b"test1234"))
-        pkgs = api.all_packages(self.request, True)
+        pkgs = api.all_packages(self.request, verbose=True)
         self.assertEqual(
             pkgs["packages"],
             [{"name": p1.name, "summary": None, "last_modified": p1.last_modified}],
@@ -58,7 +58,7 @@ class TestApi(MockServerTest):
         self.request.named_subpaths = {"username": "a"}
         self.access.allow_register.return_value = False
         self.access.need_admin.return_value = False
-        ret = api.register(self.request, "b")
+        ret = api.register(self.request, password="b")
         self.assertTrue(isinstance(ret, HTTPForbidden))
 
     def test_register(self):
@@ -67,7 +67,7 @@ class TestApi(MockServerTest):
         self.access.need_admin.return_value = False
         self.access.user_data.return_value = None
         self.access.pending_users.return_value = []
-        api.register(self.request, "b")
+        api.register(self.request, password="b")
         self.access.register.assert_called_with("a", "b")
 
     def test_register_set_admin(self):
@@ -76,7 +76,7 @@ class TestApi(MockServerTest):
         self.access.need_admin.return_value = True
         self.access.user_data.return_value = None
         self.access.pending_users.return_value = []
-        api.register(self.request, "b")
+        api.register(self.request, password="b")
         self.access.register.assert_called_with("a", "b")
         self.access.approve_user.assert_called_with("a")
         self.access.set_user_admin.assert_called_with("a", True)
@@ -87,7 +87,7 @@ class TestApi(MockServerTest):
             DummyRequest, "authenticated_userid", new_callable=PropertyMock
         ) as auid:
             auid.return_value = "u"
-            api.change_password(self.request, "a", "b")
+            api.change_password(self.request, old_password="a", new_password="b")
             self.access.edit_user_password.assert_called_with("u", "b")
 
     def test_change_password_no_verify(self):
@@ -97,7 +97,7 @@ class TestApi(MockServerTest):
         ) as auid:
             auid.return_value = "u"
             self.access.verify_user.return_value = False
-            ret = api.change_password(self.request, "a", "b")
+            ret = api.change_password(self.request, old_password="a", new_password="b")
             self.assertTrue(isinstance(ret, HTTPForbidden))
             self.access.verify_user.assert_called_with("u", "a")
 

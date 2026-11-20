@@ -162,5 +162,4 @@ class MockServerTest(unittest.TestCase):
         self.db = self.request.db = DummyCache(self.request)
         self.access = self.request.access = DummyAccess(self.request)
         self.request.path_url = "/path/"
-        self.params = {}
-        self.request.param = lambda x, y=None: self.params.get(x, y)
+        self.request.params = {}
