@@ -1,8 +1,0 @@
-azure-storage-blob
-google-cloud-storage
-numpydoc
-psycopg[binary]
-redis
-requests
-sphinx
-sphinx_rtd_theme

@@ -63,9 +63,15 @@ Internals
   annotations, ``match`` for backend dispatch, ``datetime.UTC``, ``typing.Self``,
   PEP 695 type parameters, ``@typing.override`` on every backend implementation,
   ``pathlib.Path.walk()`` and ``io.Reader`` in the file storage backend
+* Declare the package with ``pyproject.toml`` and build it with hatchling.
+  ``setup.py``, ``setup.cfg``, ``MANIFEST.in`` and the three ``requirements*.txt``
+  files are gone; test, docs and dev dependencies live in dependency groups
+* Develop with uv instead of pip and tox. ``uv sync --all-extras`` sets up a
+  checkout, ``./compose test`` runs the suite against the service containers,
+  and ``uv.lock`` pins what CI installs
 * Run the test suite with pytest, and lint with ruff. ``nose``, ``mock``,
-  ``black``, ``isort``, ``pylint`` and ``sqlalchemy-stubs`` are no longer
-  development dependencies
+  ``black``, ``isort``, ``pylint``, ``tox`` and ``sqlalchemy-stubs`` are no
+  longer development dependencies
 * The DynamoDB tests read ``DYNAMO_HOST`` and ``DYNAMO_PORT`` and skip when no
   service answers; ``docker-compose`` runs DynamoDB Local as a service
 
