@@ -20,7 +20,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock README.rst ./
 COPY pypicloud ./pypicloud
 # uwsgi has no wheels, so it is compiled here and copied into the runtime image
-RUN uv sync --frozen --no-dev --no-editable --extra ldap --extra redis --extra dynamo \
+RUN uv sync --frozen --no-dev --no-editable --extra all_plugins \
     && uv pip install --no-cache --python /opt/venv/bin/python uwsgi
 
 FROM python:3.14-slim-bookworm
@@ -45,5 +45,8 @@ WORKDIR /var/lib/pypicloud
 EXPOSE 8080
 
 # Generate the config with: ppc-make-config -r config.ini
+# --uid/--gid drop privileges if the image is started as root; they are ignored
+# when it already runs as the unprivileged user
 CMD ["uwsgi", "--master", "--enable-threads", "--http", "0.0.0.0:8080", \
+     "--uid", "pypicloud", "--gid", "pypicloud", \
      "--paste", "config:/etc/pypicloud/config.ini"]
