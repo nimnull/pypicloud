@@ -90,7 +90,6 @@ test = [
     "requests",
     "ruff",
     "types-protobuf",
-    "types-redis",
     "types-requests",
     "webtest",
 ]
