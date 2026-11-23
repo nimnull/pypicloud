@@ -6,13 +6,16 @@ import os
 import re
 import time
 import unicodedata
-from collections.abc import Callable, ItemsView, Iterator, KeysView
+from collections.abc import Callable, ItemsView, Iterator, KeysView, Mapping
+from functools import partial
 from io import Reader
 from typing import Any, Self
 
 from distlib.locators import Locator
 from distlib.util import split_filename
 from distlib.wheel import Wheel
+from pyramid.config import Configurator
+from pyramid.path import DottedNameResolver
 
 LOG = logging.getLogger(__name__)
 ALL_EXTENSIONS = Locator.source_extensions + Locator.binary_extensions
@@ -95,6 +98,28 @@ def stream_file[S: (bytes, str)](
         if not chunk:
             break
         yield chunk
+
+
+def resolve_backend(name: str, aliases: Mapping[str, str | type], package: str) -> Any:
+    """Resolve the name of a storage, cache or access backend to its class.
+
+    A name in ``aliases`` resolves to the class or dotted path it maps to. Any other
+    name is read as a dotted path to a class, relative to ``package`` when it starts
+    with a dot, which is how a backend outside this package is selected.
+    """
+    return DottedNameResolver(package).maybe_resolve(aliases.get(name, name))
+
+
+def register_backend(
+    config: Configurator, impl: Any, kwargs: dict[str, Any], name: str
+) -> None:
+    """Serve a configured backend as ``request.<name>``, one instance per request.
+
+    Also registers the backend's postfork hook, so each uWSGI worker rebuilds its
+    own connections instead of sharing the master's.
+    """
+    config.add_request_method(partial(impl, **kwargs), name=name, reify=True)
+    config.add_postfork_hook(partial(impl.postfork, **kwargs))
 
 
 class EnvironSettings:
@@ -222,17 +247,27 @@ class TimedCache(dict):
         attempt to populate itself by calling this function with the key it was
         accessed with. This function should return a value to cache, or None if
         no value is found.
+    max_size : int, optional
+        The most entries to hold. Storing a new key beyond that evicts the
+        oldest one. None, the default, holds any number of entries. Entries
+        written by :meth:`set_expire` are evicted like any other.
 
     """
 
     def __init__(
-        self, cache_time: int | None, factory: Callable[[Any], Any] | None = None
+        self,
+        cache_time: int | None,
+        factory: Callable[[Any], Any] | None = None,
+        max_size: int | None = None,
     ):
         super().__init__()
         if cache_time is not None and cache_time < 0:
             raise ValueError("cache_time cannot be negative")
+        if max_size is not None and max_size < 1:
+            raise ValueError("max_size must be at least 1")
         self._cache_time = cache_time
         self._factory = factory
+        self._max_size = max_size
         self._times: dict[str, float] = {}
 
     def _has_expired(self, key):
@@ -258,6 +293,11 @@ class TimedCache(dict):
     def __setitem__(self, key, value):
         if self._cache_time == 0:
             return
+        if self._max_size is not None and key not in self:
+            # shortcut: evicts in insertion order, not by use; move to an LRU if
+            # the hit rate suffers
+            while len(self) >= self._max_size:
+                del self[next(iter(self))]
         self._times[key] = time.time()
         super().__setitem__(key, value)
 

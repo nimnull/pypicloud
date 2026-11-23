@@ -2,6 +2,7 @@
 
 from pyramid.view import view_config
 
+from pypicloud.access import Permission
 from pypicloud.duh import addslash
 from pypicloud.route import PackagesResource
 from pypicloud.views.simple import packages_to_dict
@@ -18,7 +19,7 @@ def list_packages(request):
     """Render the list for all versions of all packages"""
     names = request.db.distinct()
     # remove the ones that you are not allowed to see
-    names = filter(lambda x: request.access.has_permission(x, "read"), names)
+    names = filter(lambda x: request.access.has_permission(x, Permission.READ), names)
     packages = []
     for package_name in names:
         packages += request.db.all(package_name)

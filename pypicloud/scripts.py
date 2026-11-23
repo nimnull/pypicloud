@@ -9,6 +9,7 @@ import os
 import sys
 from base64 import b64encode
 from importlib import resources
+from typing import Any
 
 import transaction
 from jinja2 import Template
@@ -161,7 +162,7 @@ def make_config(argv=None):
     else:
         env = prompt_option("What is this config file for?", ["dev", "test", "prod"])
 
-    data = {
+    data: dict[str, Any] = {
         "env": env,
         "workdir": "/var/lib/pypicloud" if env == "docker" else r"%(here)s",
     }

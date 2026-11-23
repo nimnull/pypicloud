@@ -9,6 +9,7 @@ from pydantic import Field
 from pyramid.httpexceptions import HTTPBadRequest, HTTPConflict, HTTPFound, HTTPNotFound
 from pyramid.view import view_config
 
+from pypicloud.access import Permission
 from pypicloud.duh import addslash
 from pypicloud.params import use_params
 from pypicloud.route import Root, SimplePackageResource, SimpleResource
@@ -41,7 +42,7 @@ def upload(
     else:
         name = normalize_name(name)
     if action == "file_upload":
-        if not request.access.has_permission(name, "write"):
+        if not request.access.has_permission(name, Permission.WRITE):
             return request.forbid()
         try:
             return request.db.upload(
@@ -69,7 +70,7 @@ def simple(request):
     i = 0
     while i < len(names):
         name = names[i]
-        if not request.access.has_permission(name, "read"):
+        if not request.access.has_permission(name, Permission.READ):
             del names[i]
             continue
         i += 1
@@ -155,8 +156,8 @@ def package_versions_json(context, request):
 def get_fallback_packages(request, package_name, redirect=True):
     """Get all package versions for a package from the fallback_base_url"""
     releases = request.locator.get_releases(package_name)
-    pkgs = {}
-    if not request.access.has_permission(package_name, "fallback"):
+    pkgs: dict[str, dict[str, Any]] = {}
+    if not request.access.has_permission(package_name, Permission.FALLBACK):
         return pkgs
     for release in releases:
         url = release["url"]
@@ -221,7 +222,7 @@ def _simple_redirect(context, request):
     normalized_name = normalize_name(context.name)
     packages = request.db.all(normalized_name)
     if packages:
-        if not request.access.has_permission(normalized_name, "read"):
+        if not request.access.has_permission(normalized_name, Permission.READ):
             if request.is_authenticated:
                 return _redirect(context, request)
             else:
@@ -237,7 +238,7 @@ def _simple_redirect_always_show(context, request):
     normalized_name = normalize_name(context.name)
     packages = request.db.all(normalized_name)
     if packages:
-        if not request.access.has_permission(normalized_name, "read"):
+        if not request.access.has_permission(normalized_name, Permission.READ):
             if request.is_authenticated:
                 return _redirect(context, request)
             else:
@@ -257,7 +258,7 @@ def _simple_cache(context, request):
     """Service /simple with fallback=cache"""
     normalized_name = normalize_name(context.name)
 
-    if not request.access.has_permission(normalized_name, "read"):
+    if not request.access.has_permission(normalized_name, Permission.READ):
         if request.is_authenticated:
             return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:
@@ -281,7 +282,7 @@ def _simple_cache_always_show(context, request):
     """Service /simple with fallback=mirror"""
     normalized_name = normalize_name(context.name)
 
-    if not request.access.has_permission(normalized_name, "read"):
+    if not request.access.has_permission(normalized_name, Permission.READ):
         if request.is_authenticated:
             return _redirect(context, request)
         else:
@@ -321,7 +322,7 @@ def _simple_serve(context, request):
     """Service /simple with fallback=none"""
     normalized_name = normalize_name(context.name)
 
-    if not request.access.has_permission(normalized_name, "read"):
+    if not request.access.has_permission(normalized_name, Permission.READ):
         if request.is_authenticated:
             return HTTPNotFound(f"No packages found named {normalized_name!r}")
         else:

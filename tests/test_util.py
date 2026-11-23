@@ -142,6 +142,35 @@ class TestTimedCache(unittest.TestCase):
         cache.set_expire("b", None, 0)
         self.assertTrue("b" not in cache)
 
+    def test_max_size_evicts_oldest(self):
+        """Storing past max_size evicts the oldest entry"""
+        cache = util.TimedCache(None, max_size=2)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        self.assertEqual(list(cache), ["b", "c"])
+        self.assertEqual(len(cache._times), 2)
+
+    def test_max_size_overwrite_keeps_size(self):
+        """Overwriting a key at max_size evicts nothing"""
+        cache = util.TimedCache(None, max_size=2)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["a"] = 3
+        self.assertEqual(cache, {"a": 3, "b": 2})
+
+    def test_max_size_unbounded_by_default(self):
+        """Without max_size the cache holds any number of entries"""
+        cache = util.TimedCache(None)
+        for i in range(50):
+            cache[i] = i
+        self.assertEqual(len(cache), 50)
+
+    def test_invalid_max_size(self):
+        """max_size below 1 is rejected"""
+        with self.assertRaises(ValueError):
+            util.TimedCache(None, max_size=0)
+
 
 class TestGetPackagetype(unittest.TestCase):
     """Tests for get_packagetype"""

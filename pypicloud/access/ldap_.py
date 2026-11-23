@@ -3,7 +3,7 @@
 import logging
 from collections import namedtuple
 from functools import wraps
-from typing import override
+from typing import Any, override
 
 from pyramid.settings import asbool, aslist
 
@@ -89,7 +89,8 @@ class LDAP:
                 "ldap.admin_group_dn must be used with ldap.user_dn_format"
             )
         self._admin_value = set(admin_value)
-        self._server = None
+        # The connection, set by connect(); configure() connects before serving
+        self._server: Any = None
         if cache_time is not None:
             cache_time = int(cache_time)
         self._cache = TimedCache(cache_time, self._fetch_user)

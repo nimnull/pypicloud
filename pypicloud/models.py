@@ -38,7 +38,7 @@ class Package:
     ):
         self.name = normalize_name(name)
         self.version = version
-        self._parsed_version = None
+        self._parsed_version: Version | None = None
         self.filename = filename
         if last_modified is not None:
             self.last_modified = last_modified
@@ -58,10 +58,11 @@ class Package:
     @property
     def parsed_version(self) -> Version:
         """The version parsed into a comparable object, cached after the first read."""
-        # Use getattr because __init__ isn't called by some ORMs.
-        if getattr(self, "_parsed_version", None) is None:
-            self._parsed_version = parse(self.version)
-        return self._parsed_version
+        # Read through getattr because some ORMs build instances without __init__.
+        parsed = getattr(self, "_parsed_version", None)
+        if parsed is None:
+            parsed = self._parsed_version = parse(self.version)
+        return parsed
 
     @property
     def is_prerelease(self):

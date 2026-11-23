@@ -1,8 +1,6 @@
 """Caching database implementations"""
 
-from functools import partial
-
-from pyramid.path import DottedNameResolver
+from pypicloud.util import register_backend, resolve_backend
 
 from .base import ICache
 from .redis_cache import RedisCache
@@ -11,19 +9,17 @@ from .sql import SQLCache
 __all__ = ["ICache", "RedisCache", "SQLCache", "get_cache_impl", "includeme"]
 
 
+# boto3 is a core requirement, but the dynamo module is only imported on demand
+_BACKENDS: dict[str, str | type] = {
+    "sql": "pypicloud.cache.SQLCache",
+    "redis": "pypicloud.cache.RedisCache",
+    "dynamo": "pypicloud.cache.dynamo.DynamoCache",
+}
+
+
 def get_cache_impl(settings):
     """Get the cache class from settings"""
-    resolver = DottedNameResolver(__name__)
-    match settings.get("pypi.db", "sql"):
-        case "sql":
-            dotted_cache = "pypicloud.cache.SQLCache"
-        case "redis":
-            dotted_cache = "pypicloud.cache.RedisCache"
-        case "dynamo":
-            dotted_cache = "pypicloud.cache.dynamo.DynamoCache"
-        case other:
-            dotted_cache = other
-    return resolver.resolve(dotted_cache)
+    return resolve_backend(settings.get("pypi.db", "sql"), _BACKENDS, __name__)
 
 
 def includeme(config):
@@ -31,8 +27,6 @@ def includeme(config):
     settings = config.get_settings()
     cache_impl = get_cache_impl(settings)
     kwargs = cache_impl.configure(settings)
-    cache = cache_impl(**kwargs)
-    cache.reload_if_needed()
-    config.add_request_method(partial(cache_impl, **kwargs), name="db", reify=True)
-    config.add_postfork_hook(partial(cache_impl.postfork, **kwargs))
+    cache_impl(**kwargs).reload_if_needed()
+    register_backend(config, cache_impl, kwargs, "db")
     return cache_impl

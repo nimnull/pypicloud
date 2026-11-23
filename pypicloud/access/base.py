@@ -5,6 +5,7 @@ import hmac
 import logging
 import time
 from collections import defaultdict
+from enum import StrEnum
 from typing import Any, override
 
 from pwdlib.exceptions import UnknownHashError
@@ -21,7 +22,7 @@ from pypicloud.hashing import SCHEMES, get_pwd_context, is_legacy_hash
 from pypicloud.util import EnvironSettings
 
 Admin = "admin"
-__all__ = ["SCHEMES", "get_pwd_context"]
+__all__ = ["SCHEMES", "Permission", "get_pwd_context"]
 LOG = logging.getLogger(__name__)
 
 
@@ -42,6 +43,20 @@ def groups_to_principals(groups: list[str]) -> list[str]:
     return [group_to_principal(g) for g in groups]
 
 
+class Permission(StrEnum):
+    """A permission named in an ACL and in ``@view_config(permission=...)``.
+
+    Members compare equal to their value, so a permission read back from a backend
+    as a plain string matches the member of the same name.
+    """
+
+    READ = "read"
+    WRITE = "write"
+    FALLBACK = "fallback"
+    LOGIN = "login"
+    ADMIN = "admin"
+
+
 ONE_WEEK = 60 * 60 * 24 * 7
 
 
@@ -50,7 +65,7 @@ class IAccessBackend:
 
     mutable = False
     ROOT_ACL = [
-        (Allow, Authenticated, "login"),
+        (Allow, Authenticated, Permission.LOGIN),
         (Allow, Admin, ALL_PERMISSIONS),
         (Deny, Everyone, ALL_PERMISSIONS),
     ]
@@ -158,17 +173,17 @@ class IAccessBackend:
         # default
         if not all_perms:
             for principal in groups_to_principals(self.default_read):
-                all_perms[principal] = ("read",)
+                all_perms[principal] = (Permission.READ,)
             for principal in groups_to_principals(self.default_write):
                 if principal in all_perms:
-                    all_perms[principal] += ("write",)
+                    all_perms[principal] += (Permission.WRITE,)
                 else:
-                    all_perms[principal] = ("write",)
+                    all_perms[principal] = (Permission.WRITE,)
 
         # add fallback permissions
         if package not in self.disallow_fallback:
             for principal in all_perms:
-                all_perms[principal] += ("fallback",)
+                all_perms[principal] += (Permission.FALLBACK,)
         return all_perms
 
     def get_acl(self, package: str) -> list[tuple[str, str, str]]:

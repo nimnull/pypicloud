@@ -12,10 +12,12 @@ from pyramid.httpexceptions import (
     HTTPForbidden,
     HTTPNotFound,
 )
+from pyramid.response import FileIter
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.view import view_config
 from smart_open import open as _open
 
+from pypicloud.access import Permission
 from pypicloud.duh import addslash
 from pypicloud.params import use_params
 from pypicloud.route import (
@@ -43,7 +45,7 @@ def all_packages(request, verbose: bool = False):
     while i < len(packages):
         package = packages[i]
         name = package if isinstance(package, str) else package["name"]
-        if not request.access.has_permission(name, "read"):
+        if not request.access.has_permission(name, Permission.READ):
             del packages[i]
             continue
         i += 1
@@ -55,7 +57,7 @@ def all_packages(request, verbose: bool = False):
     request_method="GET",
     subpath=(),
     renderer="json",
-    permission="read",
+    permission=Permission.READ,
 )
 @addslash
 def package_versions(context, request):
@@ -64,14 +66,14 @@ def package_versions(context, request):
     versions = request.db.all(normalized_name)
     return {
         "packages": versions,
-        "write": request.access.has_permission(normalized_name, "write"),
+        "write": request.access.has_permission(normalized_name, Permission.WRITE),
     }
 
 
 def fetch_dist(request, url, name, version, summary, requires_python):
     """Fetch a Distribution and upload it to the storage backend"""
     filename = posixpath.basename(url)
-    # Closed by the caller, which reads from it after this function returns
+    # The caller streams this to the client and closes it through a FileIter
     data_fp = TemporaryFile()  # noqa: SIM115
 
     with _open(url, "rb", compression="disable") as url_fp:
@@ -85,7 +87,9 @@ def fetch_dist(request, url, name, version, summary, requires_python):
     return resp, data_fp
 
 
-@view_config(context=APIPackageFileResource, request_method="GET", permission="read")
+@view_config(
+    context=APIPackageFileResource, request_method="GET", permission=Permission.READ
+)
 def download_package(context, request):
     """Download package, or redirect to the download link"""
     package = request.db.fetch(context.filename)
@@ -119,13 +123,13 @@ def download_package(context, request):
             public=True, max_age=request.registry.package_max_age
         )
         request.response.headers.update(cache_control)
-        request.response.body_file = data_fp
+        request.response.app_iter = FileIter(data_fp)
         request.response.content_type = "application/octet-stream"
         return request.response
     if request.registry.stream_files:
-        # will be closed by garbage collector
         data_fp = request.db.storage.open(package)
-        request.response.body_file = data_fp
+        # FileIter closes the stream when the server finishes the response
+        request.response.app_iter = FileIter(data_fp)
         disp = CONTENT_DISPOSITION.tuples(filename=package.filename)
         request.response.headers.update(disp)
         cache = CACHE_CONTROL.tuples(
@@ -143,7 +147,7 @@ def download_package(context, request):
     request_method="POST",
     subpath=(),
     renderer="json",
-    permission="write",
+    permission=Permission.WRITE,
 )
 @use_params
 def upload_package(
@@ -171,7 +175,7 @@ def upload_package(
     context=APIPackageFileResource,
     request_method="DELETE",
     subpath=(),
-    permission="write",
+    permission=Permission.WRITE,
 )
 def delete_package(context, request):
     """Delete a package"""
@@ -207,7 +211,7 @@ def register(request, password: str):
     name="user",
     subpath=("password"),
     request_method="POST",
-    permission="login",
+    permission=Permission.LOGIN,
 )
 @use_params
 def change_password(request, old_password: str, new_password: str):

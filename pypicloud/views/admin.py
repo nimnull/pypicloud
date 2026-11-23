@@ -9,11 +9,14 @@ from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.response import FileIter
 from pyramid.view import view_config, view_defaults
 
+from pypicloud.access import Permission
 from pypicloud.params import use_params
 from pypicloud.route import AdminResource
 
 
-@view_defaults(context=AdminResource, subpath=(), permission="admin", renderer="json")
+@view_defaults(
+    context=AdminResource, subpath=(), permission=Permission.ADMIN, renderer="json"
+)
 class AdminEndpoints:
     """Collection of admin endpoints"""
 
