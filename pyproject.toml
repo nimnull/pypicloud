@@ -138,6 +138,7 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.14"
 ignore_missing_imports = true
+check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_unreachable = true
@@ -148,6 +149,17 @@ strict_equality = true
 # https://github.com/Azure/azure-sdk-for-python/issues/19290
 module = "azure.*"
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# python-ldap exposes its constants and functions from a C extension, so mypy sees
+# none of them on the python-level module
+module = ["ldap", "ldap.*"]
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# Unsupported, and reads a `meta_` attribute that no longer exists
+module = "pypicloud.lambda_scripts"
+ignore_errors = true
 
 [tool.ruff]
 target-version = "py314"

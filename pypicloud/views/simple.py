@@ -155,7 +155,7 @@ def package_versions_json(context, request):
 def get_fallback_packages(request, package_name, redirect=True):
     """Get all package versions for a package from the fallback_base_url"""
     releases = request.locator.get_releases(package_name)
-    pkgs = {}
+    pkgs: dict[str, dict[str, Any]] = {}
     if not request.access.has_permission(package_name, "fallback"):
         return pkgs
     for release in releases:

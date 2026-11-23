@@ -1,7 +1,7 @@
 """Backend that reads access control rules from config file"""
 
 import logging
-from typing import override
+from typing import Any, override
 
 from pyramid.settings import aslist
 
@@ -39,7 +39,7 @@ class ConfigAccessBackend(IJsonAccessBackend):
             groups[key[len("group.") :]] = aslist(value)
         data["groups"] = groups
 
-        packages = {}
+        packages: dict[str, Any] = {}
         for key, value in settings.items():
             pieces = key.split(".")
             if len(pieces) != 4 or pieces[0] != "package":

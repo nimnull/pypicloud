@@ -3,6 +3,7 @@
 import calendar
 import datetime
 import logging
+from typing import Any
 from urllib.parse import urlencode
 
 from pyramid.config import Configurator
@@ -51,8 +52,9 @@ def _add_postfork_hook(config, hook):
 def includeme(config):
     """Set up and configure the pypicloud app"""
     config.set_root_factory(Root)
-    settings = config.get_settings()
-    if getattr(config.registry, "settings", None) is not settings:
+    settings: Any = config.get_settings()
+    registry_settings: Any = getattr(config.registry, "settings", None)
+    if registry_settings is not settings:
         LOG.warning(
             "Settings are not where we expected. Fetching settings from environment variables is disabled. Please file an issue with pypicloud"
         )

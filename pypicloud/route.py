@@ -28,10 +28,8 @@ class IResourceFactory:
     """Resource that generates child resources from a factory"""
 
     __name__ = ""
-    __parent__ = None
-
-    def __factory__(self, name):
-        return None
+    __parent__: Any = None
+    __factory__: ResourceFactory
 
     def __init__(self, request):
         self.request = request
@@ -59,8 +57,8 @@ class SimpleResource:
 class SimplePackageResource:
     """Resource for requesting simple endpoint package versions"""
 
-    __parent__ = None
-    __name__ = None
+    __parent__: Any = None
+    __name__: str | None = None
 
     def __init__(self, request, name):
         self.request = request
