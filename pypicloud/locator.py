@@ -16,11 +16,15 @@ class SimpleJsonLocator:
 
     def __init__(self, base_index):
         self.base_index = base_index
-        # 16m cache
-        self._cache = TimedCache(1000, self._get_releases)
+        # 16m cache, keyed on a name the client chooses, so it is bounded
+        self._cache = TimedCache(1000, self._get_releases, max_size=1000)
 
     def get_releases(self, project_name):
-        return self._cache[project_name]
+        """The upstream releases of a project, or an empty list when it has none.
+
+        A failed upstream request also reads as an empty list, and is not cached.
+        """
+        return self._cache.get(project_name, [])
 
     def _get_releases(self, project_name):
         url = f"{self.base_index}/pypi/{project_name}/json"
@@ -29,7 +33,7 @@ class SimpleJsonLocator:
             response.raise_for_status()
         except requests.RequestException as e:
             LOG.warning("Error fetching '%s' from upstream: %s", project_name, e)
-            return []
+            return None
         data = response.json()
         items = []
         summary = data["info"].get("summary")

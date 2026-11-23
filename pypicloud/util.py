@@ -222,17 +222,27 @@ class TimedCache(dict):
         attempt to populate itself by calling this function with the key it was
         accessed with. This function should return a value to cache, or None if
         no value is found.
+    max_size : int, optional
+        The most entries to hold. Storing a new key beyond that evicts the
+        oldest one. None, the default, holds any number of entries. Entries
+        written by :meth:`set_expire` are evicted like any other.
 
     """
 
     def __init__(
-        self, cache_time: int | None, factory: Callable[[Any], Any] | None = None
+        self,
+        cache_time: int | None,
+        factory: Callable[[Any], Any] | None = None,
+        max_size: int | None = None,
     ):
         super().__init__()
         if cache_time is not None and cache_time < 0:
             raise ValueError("cache_time cannot be negative")
+        if max_size is not None and max_size < 1:
+            raise ValueError("max_size must be at least 1")
         self._cache_time = cache_time
         self._factory = factory
+        self._max_size = max_size
         self._times: dict[str, float] = {}
 
     def _has_expired(self, key):
@@ -258,6 +268,11 @@ class TimedCache(dict):
     def __setitem__(self, key, value):
         if self._cache_time == 0:
             return
+        if self._max_size is not None and key not in self:
+            # shortcut: evicts in insertion order, not by use; move to an LRU if
+            # the hit rate suffers
+            while len(self) >= self._max_size:
+                del self[next(iter(self))]
         self._times[key] = time.time()
         super().__setitem__(key, value)
 
