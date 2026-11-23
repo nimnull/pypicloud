@@ -6,13 +6,16 @@ import os
 import re
 import time
 import unicodedata
-from collections.abc import Callable, ItemsView, Iterator, KeysView
+from collections.abc import Callable, ItemsView, Iterator, KeysView, Mapping
+from functools import partial
 from io import Reader
 from typing import Any, Self
 
 from distlib.locators import Locator
 from distlib.util import split_filename
 from distlib.wheel import Wheel
+from pyramid.config import Configurator
+from pyramid.path import DottedNameResolver
 
 LOG = logging.getLogger(__name__)
 ALL_EXTENSIONS = Locator.source_extensions + Locator.binary_extensions
@@ -95,6 +98,28 @@ def stream_file[S: (bytes, str)](
         if not chunk:
             break
         yield chunk
+
+
+def resolve_backend(name: str, aliases: Mapping[str, str | type], package: str) -> Any:
+    """Resolve the name of a storage, cache or access backend to its class.
+
+    A name in ``aliases`` resolves to the class or dotted path it maps to. Any other
+    name is read as a dotted path to a class, relative to ``package`` when it starts
+    with a dot, which is how a backend outside this package is selected.
+    """
+    return DottedNameResolver(package).maybe_resolve(aliases.get(name, name))
+
+
+def register_backend(
+    config: Configurator, impl: Any, kwargs: dict[str, Any], name: str
+) -> None:
+    """Serve a configured backend as ``request.<name>``, one instance per request.
+
+    Also registers the backend's postfork hook, so each uWSGI worker rebuilds its
+    own connections instead of sharing the master's.
+    """
+    config.add_request_method(partial(impl, **kwargs), name=name, reify=True)
+    config.add_postfork_hook(partial(impl.postfork, **kwargs))
 
 
 class EnvironSettings:
