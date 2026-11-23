@@ -2,6 +2,19 @@ Changelog
 =========
 If you are upgrading an existing installation, read :ref:`the instructions <upgrade>`
 
+Unreleased
+----------
+* The cache of upstream releases holds at most 1000 package names, so requests
+  for names that do not exist no longer grow the process without limit
+* A failed request to the fallback index is no longer cached, so an upstream
+  outage stops hiding a package for the next 16 minutes
+* The download endpoint closes the file it streams instead of leaving it to the
+  garbage collector
+* Permission names are available as ``pypicloud.access.Permission``, a
+  ``StrEnum`` whose members compare equal to the strings the backends store
+* Refreshed the lockfile: smart-open 10.0.0, pyramid-tm 2.7, redis 8.2.0,
+  boto3 1.44.9
+
 2.0.0a1 - 2026/11/20
 --------------------
 This is a breaking release. It requires Python 3.14, it replaces four
