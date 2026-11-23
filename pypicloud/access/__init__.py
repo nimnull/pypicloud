@@ -3,7 +3,13 @@
 from pypicloud.util import register_backend, resolve_backend
 
 from .aws_secrets_manager import AWSSecretsManagerAccessBackend
-from .base import SCHEMES, IAccessBackend, IMutableAccessBackend, get_pwd_context
+from .base import (
+    SCHEMES,
+    IAccessBackend,
+    IMutableAccessBackend,
+    Permission,
+    get_pwd_context,
+)
 from .config import ConfigAccessBackend
 from .remote import RemoteAccessBackend
 from .sql import SQLAccessBackend
@@ -14,6 +20,7 @@ __all__ = [
     "ConfigAccessBackend",
     "IAccessBackend",
     "IMutableAccessBackend",
+    "Permission",
     "RemoteAccessBackend",
     "SQLAccessBackend",
     "get_pwd_context",

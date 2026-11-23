@@ -17,6 +17,7 @@ from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.view import view_config
 from smart_open import open as _open
 
+from pypicloud.access import Permission
 from pypicloud.duh import addslash
 from pypicloud.params import use_params
 from pypicloud.route import (
@@ -44,7 +45,7 @@ def all_packages(request, verbose: bool = False):
     while i < len(packages):
         package = packages[i]
         name = package if isinstance(package, str) else package["name"]
-        if not request.access.has_permission(name, "read"):
+        if not request.access.has_permission(name, Permission.READ):
             del packages[i]
             continue
         i += 1
@@ -56,7 +57,7 @@ def all_packages(request, verbose: bool = False):
     request_method="GET",
     subpath=(),
     renderer="json",
-    permission="read",
+    permission=Permission.READ,
 )
 @addslash
 def package_versions(context, request):
@@ -65,7 +66,7 @@ def package_versions(context, request):
     versions = request.db.all(normalized_name)
     return {
         "packages": versions,
-        "write": request.access.has_permission(normalized_name, "write"),
+        "write": request.access.has_permission(normalized_name, Permission.WRITE),
     }
 
 
@@ -86,7 +87,9 @@ def fetch_dist(request, url, name, version, summary, requires_python):
     return resp, data_fp
 
 
-@view_config(context=APIPackageFileResource, request_method="GET", permission="read")
+@view_config(
+    context=APIPackageFileResource, request_method="GET", permission=Permission.READ
+)
 def download_package(context, request):
     """Download package, or redirect to the download link"""
     package = request.db.fetch(context.filename)
@@ -144,7 +147,7 @@ def download_package(context, request):
     request_method="POST",
     subpath=(),
     renderer="json",
-    permission="write",
+    permission=Permission.WRITE,
 )
 @use_params
 def upload_package(
@@ -172,7 +175,7 @@ def upload_package(
     context=APIPackageFileResource,
     request_method="DELETE",
     subpath=(),
-    permission="write",
+    permission=Permission.WRITE,
 )
 def delete_package(context, request):
     """Delete a package"""
@@ -208,7 +211,7 @@ def register(request, password: str):
     name="user",
     subpath=("password"),
     request_method="POST",
-    permission="login",
+    permission=Permission.LOGIN,
 )
 @use_params
 def change_password(request, old_password: str, new_password: str):
