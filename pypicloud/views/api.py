@@ -12,6 +12,7 @@ from pyramid.httpexceptions import (
     HTTPForbidden,
     HTTPNotFound,
 )
+from pyramid.response import FileIter
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.view import view_config
 from smart_open import open as _open
@@ -71,7 +72,7 @@ def package_versions(context, request):
 def fetch_dist(request, url, name, version, summary, requires_python):
     """Fetch a Distribution and upload it to the storage backend"""
     filename = posixpath.basename(url)
-    # Closed by the caller, which reads from it after this function returns
+    # The caller streams this to the client and closes it through a FileIter
     data_fp = TemporaryFile()  # noqa: SIM115
 
     with _open(url, "rb", compression="disable") as url_fp:
@@ -119,13 +120,13 @@ def download_package(context, request):
             public=True, max_age=request.registry.package_max_age
         )
         request.response.headers.update(cache_control)
-        request.response.body_file = data_fp
+        request.response.app_iter = FileIter(data_fp)
         request.response.content_type = "application/octet-stream"
         return request.response
     if request.registry.stream_files:
-        # will be closed by garbage collector
         data_fp = request.db.storage.open(package)
-        request.response.body_file = data_fp
+        # FileIter closes the stream when the server finishes the response
+        request.response.app_iter = FileIter(data_fp)
         disp = CONTENT_DISPOSITION.tuples(filename=package.filename)
         request.response.headers.update(disp)
         cache = CACHE_CONTROL.tuples(

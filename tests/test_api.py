@@ -125,6 +125,17 @@ class TestApi(MockServerTest):
         db.download_response.assert_not_called()
         assert_subset({"Cache-Control": "public, max-age=30"}, ret.headers)
 
+    def test_stream_files_closes_the_stream(self):
+        """Finishing the streamed response closes the storage stream"""
+        db = self.request.db = MagicMock()
+        self.request.registry.stream_files = True
+        self.request.registry.package_max_age = 30
+        ret = api.download_package(MagicMock(), self.request)
+        stream = db.storage.open.return_value
+        stream.close.assert_not_called()
+        ret.app_iter.close()
+        stream.close.assert_called_once_with()
+
     def test_download_fallback_no_cache(self):
         """Downloading missing package on non-'cache' fallback returns 404"""
         db = self.request.db = MagicMock()
